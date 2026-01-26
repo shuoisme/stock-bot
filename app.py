@@ -62,34 +62,34 @@ def save_watchlist(df):
     time.sleep(1)
     st.rerun()
 
-# --- 關鍵修改：分段抓取資料，避免全死 ---
-@st.cache_data(ttl=300)
-def fetch_stock_data(symbol):
+# --- 核心邏輯：單一後綴抓取 ---
+def _fetch_data_by_symbol(symbol):
     stock = yf.Ticker(symbol)
-    
-    # 1. 抓股價 (使用 fast_info，最穩定)
     try:
+        # 用 fast_info 快速確認有沒有價格
         price = stock.fast_info['last_price']
         prev_close = stock.fast_info['previous_close']
     except:
-        price, prev_close = None, None
+        return None, None, None, None, None, None
 
-    # 2. 抓 K 線 (如果 fast_info 失敗，嘗試用 K 線補價格)
+    # 價格抓到了，才去抓其他的
     try:
         hist = stock.history(period="1mo")
-        if price is None and not hist.empty:
+        # 如果 K 線也是空的，可能是假資料
+        if hist.empty: 
+            return None, None, None, None, None, None
+            
+        if price is None:
             price = hist['Close'].iloc[-1]
             prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else price
     except:
         hist = pd.DataFrame()
 
-    # 3. 抓基本面 (最容易被擋，失敗回傳空字典)
     try:
         info = stock.info
     except:
         info = {} 
 
-    # 4. 抓持股
     try:
         major = stock.major_holders
         inst = stock.institutional_holders
@@ -97,6 +97,30 @@ def fetch_stock_data(symbol):
         major, inst = None, None
 
     return info, hist, price, prev_close, major, inst
+
+# --- 智慧偵測：自動嘗試 .TW 與 .TWO ---
+@st.cache_data(ttl=300)
+def fetch_stock_data_smart(stock_id):
+    # 1. 如果使用者輸入的是美股 (如 AAPL) 或已有後綴，直接跑
+    if not stock_id.isdigit():
+        data = _fetch_data_by_symbol(stock_id)
+        if data[2] is not None: return data + (stock_id,) # 回傳 tuple + 實際成功的代號
+        return (None,) * 6 + (None,)
+
+    # 2. 如果是數字 (台股)，先猜是「上市」(.TW)
+    try_tw = f"{stock_id}.TW"
+    data = _fetch_data_by_symbol(try_tw)
+    if data[2] is not None:
+        return data + (try_tw,)
+
+    # 3. 如果上市失敗，再猜是「上櫃」(.TWO)
+    try_two = f"{stock_id}.TWO"
+    data = _fetch_data_by_symbol(try_two)
+    if data[2] is not None:
+        return data + (try_two,)
+        
+    return (None,) * 6 + (None,)
+
 
 # --- 3. 介面邏輯 ---
 st.title("💰 我的資產戰情室")
@@ -159,13 +183,9 @@ with st.sidebar:
                 save_watchlist(df_stocks[df_stocks['stock_id'] != selected_stock_id])
 
 if selected_stock_id:
-    yf_symbol = selected_stock_id
-    if selected_stock_id.isdigit(): yf_symbol = f"{selected_stock_id}.TW"
-
-    # 使用新的分段抓取函式
-    info, hist, price, prev_close, major, inst = fetch_stock_data(yf_symbol)
+    # 呼叫智慧偵測函式
+    info, hist, price, prev_close, major, inst, real_symbol = fetch_stock_data_smart(selected_stock_id)
     
-    # 只要有抓到價格，就顯示畫面 (就算沒有基本面也沒關係)
     if price is not None:
         user_row = df_stocks[df_stocks['stock_id'] == selected_stock_id].iloc[0]
         cost = float(user_row.get('cost_price', 0))
@@ -177,9 +197,9 @@ if selected_stock_id:
         if cost > 0:
             profit = (price - cost)
             
-        # 標題使用安全的 .get()
-        stock_name = info.get('shortName', yf_symbol) if info else yf_symbol
-        st.subheader(f"{stock_name} ({selected_stock_id})")
+        stock_name = info.get('shortName', real_symbol) if info else real_symbol
+        # 顯示真正的代號 (包含 .TWO 或 .TW)
+        st.subheader(f"{stock_name} ({real_symbol})")
         
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("現價", f"{price:.2f}", f"{pct_change:.2f}%")
@@ -197,7 +217,7 @@ if selected_stock_id:
                     style='yahoo', 
                     volume=True, 
                     mav=(5, 10, 20),
-                    title=f"{selected_stock_id} Daily K",
+                    title=f"{real_symbol} Daily K",
                     returnfig=True
                 )
                 st.pyplot(fig)
@@ -208,7 +228,6 @@ if selected_stock_id:
             c_a, c_b = st.columns(2)
             with c_a:
                 st.info("📊 **基本面數據**")
-                # 如果 info 是空的，顯示 N/A，但不要當機
                 if info:
                     pe = info.get('trailingPE', 'N/A')
                     eps = info.get('trailingEps', 'N/A')
@@ -217,7 +236,7 @@ if selected_stock_id:
                     h52 = info.get('fiftyTwoWeekHigh', 'N/A')
                     l52 = info.get('fiftyTwoWeekLow', 'N/A')
                 else:
-                    pe = eps = dy_str = h52 = l52 = "N/A (連線中斷)"
+                    pe = eps = dy_str = h52 = l52 = "N/A"
 
                 fund_data = {
                     "項目": ["本益比 (PE)", "每股盈餘 (EPS)", "股息殖利率", "52週最高", "52週最低"],
@@ -255,8 +274,7 @@ if selected_stock_id:
                     }
                 )
     else:
-        # 如果真的連價格都抓不到，才顯示錯誤
-        st.error(f"⚠️ 無法取得 {yf_symbol} 的價格資訊。\n\n可能原因：\n1. 股票代號輸入錯誤 (台股請確認)\n2. Yahoo 暫時封鎖了 IP (請等待 10 分鐘後再試)")
+        st.error(f"⚠️ 無法取得 {selected_stock_id} 的價格資訊。\n\n程式已嘗試上市 (.TW) 與上櫃 (.TWO) 後綴，但皆無回應。\n請確認代號是否正確，或稍後再試。")
 
 else:
     st.info("👈 請從左側選單選擇一支股票，開始管理你的資產！")
