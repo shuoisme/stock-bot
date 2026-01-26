@@ -9,107 +9,134 @@ from datetime import datetime, timedelta, timezone
 JSON_FILE = 'stocks.json'
 TZ_TAIWAN = timezone(timedelta(hours=8))
 
-# --- 1. Discord 推播功能 ---
-def send_discord(msg, color=3447003): # 預設藍色
+# --- 1. 專業美化推播功能 ---
+def send_discord_pretty(symbol, price, alert_type, target_price=None):
     url = os.environ.get("DISCORD_WEBHOOK")
-    if not url:
-        print("❌ 錯誤: 未設定 DISCORD_WEBHOOK")
-        return
-    
-    data = {
-        "embeds": [{
-            "description": msg,
-            "color": color
-        }]
+    if not url: return
+
+    # 設定不同情境的顏色與標題
+    if alert_type == "buy":
+        title = f"✅ 買進訊號：{symbol}"
+        desc = "股價已回檔至設定的便宜價格，請留意進場機會！"
+        color = 5763719  # 綠色 (Green)
+        icon = "📉"      # 低點圖示
+    elif alert_type == "sell":
+        title = f"💰 獲利訊號：{symbol}"
+        desc = "股價已上漲至設定的目標價格，恭喜發財！"
+        color = 15548997 # 紅色 (Red)
+        icon = "📈"      # 高點圖示
+    else:
+        title = f"⏰ 整點報價：{symbol}"
+        desc = "市場即時行情更新"
+        color = 3447003  # 藍色 (Blue)
+        icon = "⏱️"
+
+    # 建立卡片內容 (Embed)
+    embed = {
+        "title": f"{icon} {title}",
+        "description": desc,
+        "color": color,
+        "fields": [
+            {
+                "name": "💵 目前股價",
+                "value": f"**`{price:.2f}`**",
+                "inline": True
+            },
+            {
+                "name": "🎯 設定目標",
+                "value": f"`{target_price}`" if target_price else "`整點回報`",
+                "inline": True
+            },
+            {
+                "name": "🕒 通知時間",
+                "value": datetime.now(TZ_TAIWAN).strftime('%Y-%m-%d %H:%M:%S'),
+                "inline": False
+            }
+        ],
+        "footer": {
+            "text": "🤖 股市戰情室 • 24hr 自動監控中",
+            "icon_url": "https://cdn-icons-png.flaticon.com/512/4204/4204600.png" # 機器人小圖示
+        }
     }
+
+    payload = {
+        "username": "超級股市管家",   # 機器人名字
+        "avatar_url": "https://cdn-icons-png.flaticon.com/512/2910/2910311.png", # 機器人頭像
+        "embeds": [embed]
+    }
+    
     try:
-        requests.post(url, json=data)
+        requests.post(url, json=payload)
     except Exception as e:
         print(f"推播失敗: {e}")
 
-# --- 2. 智慧抓價功能 (跟網頁一樣聰明) ---
+# --- 2. 智慧抓價功能 ---
 def fetch_price(stock_id):
-    # 內部小函式：嘗試抓取
     def _try_get(symbol):
         try:
             stock = yf.Ticker(symbol)
-            # 嘗試抓取即時價格
             price = stock.fast_info.last_price
             return price, symbol
         except:
             return None, None
 
-    # A. 如果已經是 .TW 或 .TWO 結尾，直接抓
-    if not stock_id.isdigit():
-        return _try_get(stock_id)
-
-    # B. 猜上市 (.TW)
+    if not stock_id.isdigit(): return _try_get(stock_id)
     p, s = _try_get(f"{stock_id}.TW")
     if p: return p, s
-
-    # C. 猜上櫃 (.TWO)
     p, s = _try_get(f"{stock_id}.TWO")
     if p: return p, s
-    
     return None, None
 
 # --- 3. 檢查邏輯 ---
 def check_stock():
-    print("🚀 機器人啟動，開始巡邏...")
+    print("🚀 機器人啟動 (美化版)...")
     
-    if not os.path.exists(JSON_FILE):
-        print("找不到 stocks.json，跳過。")
-        return
+    if not os.path.exists(JSON_FILE): return
 
     with open(JSON_FILE, 'r') as f:
         stock_list = json.load(f)
 
-    # 判斷是否為整點 (0~4分算整點) -> 只有整點才報報價，不然太吵
+    # 判斷是否為整點 (0-4分)
     now = datetime.now(TZ_TAIWAN)
     is_hourly_report = (now.minute < 5)
     
-    msgs = []
+    # 避免整點報價洗版，我們把整點的資訊收集起來一次發比較整齊
+    hourly_msgs = []
     
     for item in stock_list:
         sid = item['stock_id']
         buy_target = float(item['buy_target']) if item.get('buy_target') else None
         sell_target = float(item['sell_target']) if item.get('sell_target') else None
         
-        # 抓價格
         price, real_symbol = fetch_price(sid)
         
         if price:
             print(f"Checking {real_symbol}: {price}")
             
-            # 判斷買賣點
-            alert_msg = ""
-            alert_color = 3447003 # 藍色 (普通)
-            
+            # 優先觸發重要警報
             if buy_target and price <= buy_target:
-                alert_msg = f"✅ **到達買點**！ (低於 {buy_target})"
-                alert_color = 65280 # 綠色
+                send_discord_pretty(real_symbol, price, "buy", buy_target)
+                time.sleep(1) # 避免太快被 Discord 擋
             elif sell_target and price >= sell_target:
-                alert_msg = f"💰 **到達賣點**！ (高於 {sell_target})"
-                alert_color = 15158332 # 紅色
-            
-            # 觸發通知的條件：
-            # 1. 有買賣訊號 (alert_msg)
-            # 2. 或是整點時刻 (is_hourly_report) 報平安
-            
-            if alert_msg:
-                full_msg = f"📢 **{real_symbol}** 現價 `{price:.2f}`\n{alert_msg}"
-                send_discord(full_msg, alert_color)
-                time.sleep(1) # 避免 Discord 洗頻限制
+                send_discord_pretty(real_symbol, price, "sell", sell_target)
+                time.sleep(1)
             elif is_hourly_report:
-                # 整點報價收集起來，最後一次發
-                msgs.append(f"**{sid}**: `{price:.2f}`")
-        else:
-            print(f"⚠️ 無法取得 {sid} 價格")
+                # 沒觸發警報，但現在是整點，加入清單
+                hourly_msgs.append(f"**{real_symbol}**: `{price:.2f}`")
 
-    # 如果是整點，且有收集到報價，發送彙整報告
-    if msgs and is_hourly_report:
-        report = "⏰ **整點報價**\n" + "\n".join(msgs)
-        send_discord(report)
+    # 如果是整點，發送一張彙整的卡片
+    if hourly_msgs:
+        url = os.environ.get("DISCORD_WEBHOOK")
+        if url:
+            desc = "\n".join(hourly_msgs)
+            embed = {
+                "title": "⏰ 整點行情快報",
+                "description": desc,
+                "color": 3447003, # 藍色
+                "timestamp": datetime.now(TZ_TAIWAN).isoformat(),
+                "footer": {"text": "股市戰情室"}
+            }
+            requests.post(url, json={"username": "超級股市管家", "embeds": [embed]})
 
 if __name__ == "__main__":
     check_stock()
