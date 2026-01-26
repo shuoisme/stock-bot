@@ -62,14 +62,41 @@ def save_watchlist(df):
     time.sleep(1)
     st.rerun()
 
+# --- 關鍵修改：分段抓取資料，避免全死 ---
 @st.cache_data(ttl=300)
 def fetch_stock_data(symbol):
+    stock = yf.Ticker(symbol)
+    
+    # 1. 抓股價 (使用 fast_info，最穩定)
     try:
-        stock = yf.Ticker(symbol)
-        time.sleep(0.1)
-        return stock.info, stock.history(period="1mo"), stock.major_holders, stock.institutional_holders
+        price = stock.fast_info['last_price']
+        prev_close = stock.fast_info['previous_close']
     except:
-        return None, None, None, None
+        price, prev_close = None, None
+
+    # 2. 抓 K 線 (如果 fast_info 失敗，嘗試用 K 線補價格)
+    try:
+        hist = stock.history(period="1mo")
+        if price is None and not hist.empty:
+            price = hist['Close'].iloc[-1]
+            prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else price
+    except:
+        hist = pd.DataFrame()
+
+    # 3. 抓基本面 (最容易被擋，失敗回傳空字典)
+    try:
+        info = stock.info
+    except:
+        info = {} 
+
+    # 4. 抓持股
+    try:
+        major = stock.major_holders
+        inst = stock.institutional_holders
+    except:
+        major, inst = None, None
+
+    return info, hist, price, prev_close, major, inst
 
 # --- 3. 介面邏輯 ---
 st.title("💰 我的資產戰情室")
@@ -135,12 +162,11 @@ if selected_stock_id:
     yf_symbol = selected_stock_id
     if selected_stock_id.isdigit(): yf_symbol = f"{selected_stock_id}.TW"
 
-    info, hist, major, inst = fetch_stock_data(yf_symbol)
+    # 使用新的分段抓取函式
+    info, hist, price, prev_close, major, inst = fetch_stock_data(yf_symbol)
     
-    if info:
-        price = info.get('currentPrice') or info.get('regularMarketPrice')
-        prev_close = info.get('previousClose')
-        
+    # 只要有抓到價格，就顯示畫面 (就算沒有基本面也沒關係)
+    if price is not None:
         user_row = df_stocks[df_stocks['stock_id'] == selected_stock_id].iloc[0]
         cost = float(user_row.get('cost_price', 0))
         
@@ -151,10 +177,12 @@ if selected_stock_id:
         if cost > 0:
             profit = (price - cost)
             
-        st.subheader(f"{info.get('shortName', yf_symbol)} ({selected_stock_id})")
+        # 標題使用安全的 .get()
+        stock_name = info.get('shortName', yf_symbol) if info else yf_symbol
+        st.subheader(f"{stock_name} ({selected_stock_id})")
         
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("現價", f"{price}", f"{pct_change:.2f}%")
+        m1.metric("現價", f"{price:.2f}", f"{pct_change:.2f}%")
         m2.metric("原始成本", f"{cost}", delta=f"{profit:.1f} (損益)" if cost>0 else "未設定", delta_color="normal")
         m3.metric("預期獲利價", user_row['sell_target'] or "-")
         m4.metric("預期加碼價", user_row['buy_target'] or "-")
@@ -174,29 +202,27 @@ if selected_stock_id:
                 )
                 st.pyplot(fig)
             else:
-                st.warning("無歷史資料")
+                st.warning("暫無 K 線資料")
 
         with tab2:
             c_a, c_b = st.columns(2)
             with c_a:
                 st.info("📊 **基本面數據**")
-                # 取得資料並安全處理
-                pe = info.get('trailingPE', 'N/A')
-                eps = info.get('trailingEps', 'N/A')
-                dy = info.get('dividendYield')
-                dy_str = f"{dy*100:.2f}%" if dy else "N/A"
-                
+                # 如果 info 是空的，顯示 N/A，但不要當機
+                if info:
+                    pe = info.get('trailingPE', 'N/A')
+                    eps = info.get('trailingEps', 'N/A')
+                    dy = info.get('dividendYield')
+                    dy_str = f"{dy*100:.2f}%" if dy else "N/A"
+                    h52 = info.get('fiftyTwoWeekHigh', 'N/A')
+                    l52 = info.get('fiftyTwoWeekLow', 'N/A')
+                else:
+                    pe = eps = dy_str = h52 = l52 = "N/A (連線中斷)"
+
                 fund_data = {
                     "項目": ["本益比 (PE)", "每股盈餘 (EPS)", "股息殖利率", "52週最高", "52週最低"],
-                    "數值": [
-                        str(pe), # 強制轉文字，避免 Crash
-                        str(eps), 
-                        str(dy_str), 
-                        str(info.get('fiftyTwoWeekHigh', 'N/A')),
-                        str(info.get('fiftyTwoWeekLow', 'N/A'))
-                    ]
+                    "數值": [str(pe), str(eps), str(dy_str), str(h52), str(l52)]
                 }
-                # 這裡強制轉型成字串 (astype(str)) 是關鍵
                 st.dataframe(pd.DataFrame(fund_data).astype(str), use_container_width=True)
 
             with c_b:
@@ -206,13 +232,12 @@ if selected_stock_id:
                 elif inst is not None and not inst.empty:
                     st.dataframe(inst.astype(str), use_container_width=True)
                 else:
-                    st.write("查無公開機構持股資料")
+                    st.write("查無資料或連線受限")
 
         with tab3:
             st.caption("近 5 日詳細交易數據")
             if not hist.empty:
                 display_df = hist[['Open', 'High', 'Low', 'Close', 'Volume']].sort_index(ascending=False).head(5)
-                
                 st.dataframe(
                     display_df,
                     use_container_width=True,
@@ -230,7 +255,8 @@ if selected_stock_id:
                     }
                 )
     else:
-        st.error("無法讀取資料，請稍後再試。")
+        # 如果真的連價格都抓不到，才顯示錯誤
+        st.error(f"⚠️ 無法取得 {yf_symbol} 的價格資訊。\n\n可能原因：\n1. 股票代號輸入錯誤 (台股請確認)\n2. Yahoo 暫時封鎖了 IP (請等待 10 分鐘後再試)")
 
 else:
     st.info("👈 請從左側選單選擇一支股票，開始管理你的資產！")
