@@ -37,7 +37,6 @@ def load_watchlist():
     if contents:
         data = json.loads(contents.decoded_content.decode())
         df = pd.DataFrame(data)
-        # 自動修復：如果舊資料沒有 cost_price 欄位，幫它補上
         if 'cost_price' not in df.columns:
             df['cost_price'] = 0.0
         return df
@@ -68,7 +67,6 @@ def fetch_stock_data(symbol):
     try:
         stock = yf.Ticker(symbol)
         time.sleep(0.1)
-        # 抓取基本資料與歷史K線
         return stock.info, stock.history(period="1mo"), stock.major_holders, stock.institutional_holders
     except:
         return None, None, None, None
@@ -76,17 +74,14 @@ def fetch_stock_data(symbol):
 # --- 3. 介面邏輯 ---
 st.title("💰 我的資產戰情室")
 
-# 讀取清單
 try:
     df_stocks = load_watchlist()
 except:
     df_stocks = pd.DataFrame(columns=['stock_id', 'buy_target', 'sell_target', 'cost_price'])
 
-# --- 側邊欄：管理股票 ---
 with st.sidebar:
     st.header("⚙️ 庫存管理")
     
-    # 顯示簡易清單
     if not df_stocks.empty:
         stock_list = df_stocks['stock_id'].tolist()
         selected_stock_id = st.selectbox("選擇要查看/編輯的股票：", stock_list)
@@ -96,11 +91,9 @@ with st.sidebar:
 
     st.divider()
     
-    # 新增股票區塊
     with st.expander("➕ 新增 / 編輯持股"):
         edit_id = st.text_input("股票代號", value=selected_stock_id if selected_stock_id else "")
         
-        # 抓取目前的設定值
         curr_cost = 0.0
         curr_buy = 0.0
         curr_sell = 0.0
@@ -110,7 +103,6 @@ with st.sidebar:
             curr_cost = float(row.get('cost_price', 0))
             curr_buy = float(row.get('buy_target', 0) or 0)
             curr_sell = float(row.get('sell_target', 0) or 0)
-            st.info(f"正在編輯 {edit_id} 的設定")
 
         new_cost = st.number_input("原始買進成本 (Cost)", value=curr_cost, min_value=0.0)
         c1, c2 = st.columns(2)
@@ -119,7 +111,6 @@ with st.sidebar:
         
         if st.button("💾 儲存 / 新增"):
             if edit_id:
-                # 準備新資料
                 new_data = {
                     'stock_id': edit_id,
                     'cost_price': new_cost,
@@ -127,51 +118,39 @@ with st.sidebar:
                     'sell_target': new_sell if new_sell > 0 else None
                 }
                 
-                # 如果已存在，先刪除舊的
                 if edit_id in df_stocks['stock_id'].values:
                     df_stocks = df_stocks[df_stocks['stock_id'] != edit_id]
                 
-                # 加入新的
                 df_new = pd.concat([df_stocks, pd.DataFrame([new_data])], ignore_index=True)
                 save_watchlist(df_new)
             else:
                 st.warning("請輸入代號")
 
-    # 刪除區塊
     if not df_stocks.empty:
         with st.expander("🗑️ 刪除股票"):
             if st.button(f"刪除 {selected_stock_id}"):
                 save_watchlist(df_stocks[df_stocks['stock_id'] != selected_stock_id])
 
-# --- 主畫面：資產儀表板 ---
 if selected_stock_id:
-    # 處理代號
     yf_symbol = selected_stock_id
     if selected_stock_id.isdigit(): yf_symbol = f"{selected_stock_id}.TW"
 
-    # 取得資料
     info, hist, major, inst = fetch_stock_data(yf_symbol)
     
     if info:
-        # 核心數據
         price = info.get('currentPrice') or info.get('regularMarketPrice')
         prev_close = info.get('previousClose')
         
-        # 取得使用者設定
         user_row = df_stocks[df_stocks['stock_id'] == selected_stock_id].iloc[0]
         cost = float(user_row.get('cost_price', 0))
         
-        # 計算損益
         change = price - prev_close
         pct_change = (change / prev_close) * 100
         
         profit = 0
-        profit_pct = 0
         if cost > 0:
             profit = (price - cost)
-            profit_pct = (profit / cost) * 100
             
-        # --- 頂部資訊卡 ---
         st.subheader(f"{info.get('shortName', yf_symbol)} ({selected_stock_id})")
         
         m1, m2, m3, m4 = st.columns(4)
@@ -180,12 +159,10 @@ if selected_stock_id:
         m3.metric("預期獲利價", user_row['sell_target'] or "-")
         m4.metric("預期加碼價", user_row['buy_target'] or "-")
 
-        # --- 分頁功能 ---
         tab1, tab2, tab3 = st.tabs(["📊 K線與走勢", "📑 基本面與法人", "📋 詳細報價表"])
 
         with tab1:
             if not hist.empty:
-                # 畫漂亮的圖
                 fig, ax = mpf.plot(
                     hist, 
                     type='candle', 
@@ -200,39 +177,42 @@ if selected_stock_id:
                 st.warning("無歷史資料")
 
         with tab2:
-            # 這裡顯示法人替代方案
             c_a, c_b = st.columns(2)
             with c_a:
                 st.info("📊 **基本面數據**")
-                # 建立基本面表格
+                # 取得資料並安全處理
+                pe = info.get('trailingPE', 'N/A')
+                eps = info.get('trailingEps', 'N/A')
+                dy = info.get('dividendYield')
+                dy_str = f"{dy*100:.2f}%" if dy else "N/A"
+                
                 fund_data = {
                     "項目": ["本益比 (PE)", "每股盈餘 (EPS)", "股息殖利率", "52週最高", "52週最低"],
                     "數值": [
-                        info.get('trailingPE', 'N/A'),
-                        info.get('trailingEps', 'N/A'),
-                        f"{info.get('dividendYield', 0)*100:.2f}%" if info.get('dividendYield') else "N/A",
-                        info.get('fiftyTwoWeekHigh', 'N/A'),
-                        info.get('fiftyTwoWeekLow', 'N/A')
+                        str(pe), # 強制轉文字，避免 Crash
+                        str(eps), 
+                        str(dy_str), 
+                        str(info.get('fiftyTwoWeekHigh', 'N/A')),
+                        str(info.get('fiftyTwoWeekLow', 'N/A'))
                     ]
                 }
-                st.dataframe(pd.DataFrame(fund_data), hide_index=True, use_container_width=True)
+                # 這裡強制轉型成字串 (astype(str)) 是關鍵
+                st.dataframe(pd.DataFrame(fund_data).astype(str), use_container_width=True)
 
             with c_b:
-                st.info("🏢 **機構與大股東持股** (Yahoo 來源)")
+                st.info("🏢 **機構與大股東持股**")
                 if major is not None and not major.empty:
-                    st.dataframe(major, use_container_width=True)
+                    st.dataframe(major.astype(str), use_container_width=True)
                 elif inst is not None and not inst.empty:
-                    st.dataframe(inst, use_container_width=True)
+                    st.dataframe(inst.astype(str), use_container_width=True)
                 else:
                     st.write("查無公開機構持股資料")
 
         with tab3:
             st.caption("近 5 日詳細交易數據")
             if not hist.empty:
-                # 優化表格顯示 (加上顏色與格式)
                 display_df = hist[['Open', 'High', 'Low', 'Close', 'Volume']].sort_index(ascending=False).head(5)
                 
-                # 使用 Streamlit Column Config 進行美化
                 st.dataframe(
                     display_df,
                     use_container_width=True,
@@ -245,8 +225,7 @@ if selected_stock_id:
                             "成交量", 
                             format="%d", 
                             min_value=0, 
-                            max_value=int(hist['Volume'].max()),
-                            help="成交量長條圖"
+                            max_value=int(hist['Volume'].max())
                         ),
                     }
                 )
