@@ -1,11 +1,5 @@
 [
   {
-    "stock_id":"2303",
-    "buy_target":null,
-    "sell_target":72.0,
-    "cost_price":50.0
-  },
-  {
     "stock_id":"5521",
     "buy_target":null,
     "sell_target":23.0,
@@ -28,5 +22,11 @@
     "buy_target":null,
     "sell_target":50.0,
     "cost_price":39.2
+  },
+  {
+    "stock_id":"2303",
+    "buy_target":null,
+    "sell_target":55.0,
+    "cost_price":50.0
   }
 ]
