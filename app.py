@@ -62,65 +62,47 @@ def save_watchlist(df):
     time.sleep(1)
     st.rerun()
 
-# --- 核心邏輯：單一後綴抓取 ---
-def _fetch_data_by_symbol(symbol):
-    stock = yf.Ticker(symbol)
-    try:
-        # 用 fast_info 快速確認有沒有價格
-        price = stock.fast_info['last_price']
-        prev_close = stock.fast_info['previous_close']
-    except:
-        return None, None, None, None, None, None
-
-    # 價格抓到了，才去抓其他的
-    try:
-        hist = stock.history(period="1mo")
-        # 如果 K 線也是空的，可能是假資料
-        if hist.empty: 
-            return None, None, None, None, None, None
-            
-        if price is None:
-            price = hist['Close'].iloc[-1]
-            prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else price
-    except:
-        hist = pd.DataFrame()
-
-    try:
-        info = stock.info
-    except:
-        info = {} 
-
-    try:
-        major = stock.major_holders
-        inst = stock.institutional_holders
-    except:
-        major, inst = None, None
-
-    return info, hist, price, prev_close, major, inst
-
-# --- 智慧偵測：自動嘗試 .TW 與 .TWO ---
+# --- 核心邏輯 1: 抓取基本資訊 (含代號偵測) ---
+# 這個函式負責確認 6182 到底是 .TW 還是 .TWO，並抓取現價
 @st.cache_data(ttl=300)
-def fetch_stock_data_smart(stock_id):
-    # 1. 如果使用者輸入的是美股 (如 AAPL) 或已有後綴，直接跑
+def fetch_basic_info(stock_id):
+    def _get_info(symbol):
+        stock = yf.Ticker(symbol)
+        try:
+            price = stock.fast_info['last_price']
+            prev_close = stock.fast_info['previous_close']
+            return stock.info, price, prev_close, stock.major_holders, stock.institutional_holders
+        except:
+            return None, None, None, None, None
+
+    # 1. 直接嘗試 (美股或已有後綴)
     if not stock_id.isdigit():
-        data = _fetch_data_by_symbol(stock_id)
-        if data[2] is not None: return data + (stock_id,) # 回傳 tuple + 實際成功的代號
-        return (None,) * 6 + (None,)
+        data = _get_info(stock_id)
+        if data[1] is not None: return data + (stock_id,)
+        return (None,) * 5 + (None,)
 
-    # 2. 如果是數字 (台股)，先猜是「上市」(.TW)
+    # 2. 猜上市 (.TW)
     try_tw = f"{stock_id}.TW"
-    data = _fetch_data_by_symbol(try_tw)
-    if data[2] is not None:
-        return data + (try_tw,)
+    data = _get_info(try_tw)
+    if data[1] is not None: return data + (try_tw,)
 
-    # 3. 如果上市失敗，再猜是「上櫃」(.TWO)
+    # 3. 猜上櫃 (.TWO)
     try_two = f"{stock_id}.TWO"
-    data = _fetch_data_by_symbol(try_two)
-    if data[2] is not None:
-        return data + (try_two,)
-        
-    return (None,) * 6 + (None,)
+    data = _get_info(try_two)
+    if data[1] is not None: return data + (try_two,)
 
+    return (None,) * 5 + (None,)
+
+# --- 核心邏輯 2: 獨立抓取 K 線 ---
+# 分開寫的好處是：切換日/週/月時，不用重新去跑上面那個偵測邏輯，速度快很多
+@st.cache_data(ttl=300)
+def fetch_kline(symbol, interval="1d", period="1y"):
+    try:
+        stock = yf.Ticker(symbol)
+        hist = stock.history(period=period, interval=interval)
+        return hist
+    except:
+        return pd.DataFrame()
 
 # --- 3. 介面邏輯 ---
 st.title("💰 我的資產戰情室")
@@ -183,8 +165,8 @@ with st.sidebar:
                 save_watchlist(df_stocks[df_stocks['stock_id'] != selected_stock_id])
 
 if selected_stock_id:
-    # 呼叫智慧偵測函式
-    info, hist, price, prev_close, major, inst, real_symbol = fetch_stock_data_smart(selected_stock_id)
+    # 1. 先抓基本資料 (包含偵測 .TW 或 .TWO)
+    info, price, prev_close, major, inst, real_symbol = fetch_basic_info(selected_stock_id)
     
     if price is not None:
         user_row = df_stocks[df_stocks['stock_id'] == selected_stock_id].iloc[0]
@@ -198,7 +180,6 @@ if selected_stock_id:
             profit = (price - cost)
             
         stock_name = info.get('shortName', real_symbol) if info else real_symbol
-        # 顯示真正的代號 (包含 .TWO 或 .TW)
         st.subheader(f"{stock_name} ({real_symbol})")
         
         m1, m2, m3, m4 = st.columns(4)
@@ -210,14 +191,34 @@ if selected_stock_id:
         tab1, tab2, tab3 = st.tabs(["📊 K線與走勢", "📑 基本面與法人", "📋 詳細報價表"])
 
         with tab1:
+            # --- 新增：K線週期選擇器 ---
+            k_col1, k_col2 = st.columns([1, 4])
+            with k_col1:
+                k_type = st.radio("選擇週期", ["日 K", "週 K", "月 K"], horizontal=True, label_visibility="collapsed")
+            
+            # 對應 yfinance 參數
+            if k_type == "日 K":
+                yf_interval = "1d"
+                yf_period = "1y"    # 日K看1年
+            elif k_type == "週 K":
+                yf_interval = "1wk"
+                yf_period = "5y"    # 週K看5年
+            else:
+                yf_interval = "1mo"
+                yf_period = "max"   # 月K看全部
+
+            # 2. 根據選擇去抓 K 線
+            hist = fetch_kline(real_symbol, interval=yf_interval, period=yf_period)
+
             if not hist.empty:
+                # 畫圖
                 fig, ax = mpf.plot(
                     hist, 
                     type='candle', 
                     style='yahoo', 
                     volume=True, 
                     mav=(5, 10, 20),
-                    title=f"{real_symbol} Daily K",
+                    title=f"{real_symbol} {k_type} ({yf_period})",
                     returnfig=True
                 )
                 st.pyplot(fig)
@@ -254,8 +255,9 @@ if selected_stock_id:
                     st.write("查無資料或連線受限")
 
         with tab3:
-            st.caption("近 5 日詳細交易數據")
+            st.caption("詳細交易數據 (依照選擇的週期)")
             if not hist.empty:
+                # 顯示最近 5 筆 (根據日/週/月)
                 display_df = hist[['Open', 'High', 'Low', 'Close', 'Volume']].sort_index(ascending=False).head(5)
                 st.dataframe(
                     display_df,
