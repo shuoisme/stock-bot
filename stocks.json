@@ -1,7 +1,14 @@
 [
   {
-    "stock_id": "2330",
-    "buy_target": 500,
-    "sell_target": 1000
+    "stock_id":"2330",
+    "buy_target":500,
+    "sell_target":1000.0,
+    "cost_price":0.0
+  },
+  {
+    "stock_id":"6182",
+    "buy_target":null,
+    "sell_target":39.5,
+    "cost_price":39.2
   }
 ]
