@@ -1,0 +1,7 @@
+twstock
+requests
+pandas
+mplfinance
+streamlit
+PyGithub
+lxml
