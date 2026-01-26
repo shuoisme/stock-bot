@@ -5,3 +5,4 @@ mplfinance
 streamlit
 PyGithub
 lxml
+altair<5
