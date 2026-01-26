@@ -18,15 +18,15 @@
     "cost_price":27.1
   },
   {
-    "stock_id":"6182",
-    "buy_target":null,
-    "sell_target":55.0,
-    "cost_price":39.2
-  },
-  {
     "stock_id":"2312",
     "buy_target":null,
     "sell_target":50.0,
     "cost_price":34.1
+  },
+  {
+    "stock_id":"6182",
+    "buy_target":null,
+    "sell_target":39.5,
+    "cost_price":39.2
   }
 ]
