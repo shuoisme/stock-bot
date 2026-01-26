@@ -1,4 +1,4 @@
-twstock
+yfinance
 requests
 pandas
 mplfinance
