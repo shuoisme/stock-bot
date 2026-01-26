@@ -22,5 +22,11 @@
     "buy_target":null,
     "sell_target":23.0,
     "cost_price":15.4
+  },
+  {
+    "stock_id":"3071",
+    "buy_target":null,
+    "sell_target":35.0,
+    "cost_price":27.1
   }
 ]
