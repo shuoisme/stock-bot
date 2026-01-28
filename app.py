@@ -48,7 +48,7 @@ def get_current_price(stock_id):
         return 0
 
 # --- 3. 介面設計 ---
-st.title("💰 家族股市帳本")
+st.title("💰 股市帳本")
 st.caption("即時監控與損益試算")
 
 tab1, tab2 = st.tabs(["📊 持股管理 (修改/刪除)", "➕ 新增股票"])
@@ -170,3 +170,4 @@ with tab2:
                     st.rerun()
             else:
                 st.error("請輸入股票代號")
+
