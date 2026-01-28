@@ -1,282 +1,157 @@
 import streamlit as st
+import json
 import pandas as pd
 import yfinance as yf
-import mplfinance as mpf
-import json
-import os
-from github import Github, Auth
-import time
+from github import Github
 
-# --- 1. 設定區 ---
-# ⚠️ 請再次確認這裡填對！格式: "你的帳號/專案名稱"
-GITHUB_REPO_NAME = "shuoisme/stock-bot" 
-DATA_FILE_PATH = "stocks.json"
+# --- 設定頁面資訊 (手機上看起來像 App) ---
+st.set_page_config(page_title="家族股市帳本", page_icon="💰", layout="centered")
 
-st.set_page_config(page_title="我的股市戰情室", layout="wide", page_icon="💰")
+# --- 1. 連接 GitHub ---
+# 這是為了讀取和儲存 stocks.json
+def get_repo():
+    token = st.secrets["GH_TOKEN"]
+    g = Github(token)
+    return g.get_repo("shuoisme/stock-bot") # ⚠️ 記得改成你的 "帳號/專案名"
 
-# --- 2. 雲端連線區 ---
-@st.cache_resource(ttl=600)
-def get_github_connection():
-    token = os.environ.get("GH_TOKEN")
-    if not token: return None
-    auth = Auth.Token(token)
-    return Github(auth=auth)
-
-def get_github_content(repo_name, file_path):
-    g = get_github_connection()
-    if not g: return None, None
+def load_data():
     try:
-        repo = g.get_repo(repo_name)
-        contents = repo.get_contents(file_path)
-        return repo, contents
+        repo = get_repo()
+        content = repo.get_contents("stocks.json")
+        return json.loads(content.decoded_content.decode()), content.sha
     except:
-        return None, None
+        return [], None
 
-def load_watchlist():
-    repo, contents = get_github_content(GITHUB_REPO_NAME, DATA_FILE_PATH)
-    if contents:
-        data = json.loads(contents.decoded_content.decode())
-        df = pd.DataFrame(data)
-        if 'cost_price' not in df.columns:
-            df['cost_price'] = 0.0
-        return df
-    else:
-        return pd.DataFrame(columns=['stock_id', 'buy_target', 'sell_target', 'cost_price'])
+def save_data(data, sha):
+    repo = get_repo()
+    content = repo.get_contents("stocks.json")
+    repo.update_file("stocks.json", "Update from App", json.dumps(data, indent=2, ensure_ascii=False), content.sha)
 
-def save_watchlist(df):
-    repo, contents = get_github_content(GITHUB_REPO_NAME, DATA_FILE_PATH)
-    if not repo:
-        st.error("GitHub 連線失敗")
-        st.stop()
-        
-    df = df.astype({'stock_id': str})
-    json_str = df.to_json(orient='records', indent=2)
-    
-    if contents:
-        repo.update_file(contents.path, "Update data", json_str, contents.sha)
-    else:
-        repo.create_file(DATA_FILE_PATH, "Init data", json_str)
-    
-    st.toast("✅ 資料已更新！", icon="💾")
-    st.cache_data.clear()
-    time.sleep(1)
-    st.rerun()
-
-# --- 核心邏輯 1: 抓取基本資訊 (含代號偵測) ---
-# 這個函式負責確認 6182 到底是 .TW 還是 .TWO，並抓取現價
-@st.cache_data(ttl=300)
-def fetch_basic_info(stock_id):
-    def _get_info(symbol):
-        stock = yf.Ticker(symbol)
-        try:
-            price = stock.fast_info['last_price']
-            prev_close = stock.fast_info['previous_close']
-            return stock.info, price, prev_close, stock.major_holders, stock.institutional_holders
-        except:
-            return None, None, None, None, None
-
-    # 1. 直接嘗試 (美股或已有後綴)
-    if not stock_id.isdigit():
-        data = _get_info(stock_id)
-        if data[1] is not None: return data + (stock_id,)
-        return (None,) * 5 + (None,)
-
-    # 2. 猜上市 (.TW)
-    try_tw = f"{stock_id}.TW"
-    data = _get_info(try_tw)
-    if data[1] is not None: return data + (try_tw,)
-
-    # 3. 猜上櫃 (.TWO)
-    try_two = f"{stock_id}.TWO"
-    data = _get_info(try_two)
-    if data[1] is not None: return data + (try_two,)
-
-    return (None,) * 5 + (None,)
-
-# --- 核心邏輯 2: 獨立抓取 K 線 ---
-# 分開寫的好處是：切換日/週/月時，不用重新去跑上面那個偵測邏輯，速度快很多
-@st.cache_data(ttl=300)
-def fetch_kline(symbol, interval="1d", period="1y"):
+# --- 2. 抓取即時股價 (為了顯示給家人看) ---
+def get_current_price(stock_id):
     try:
-        stock = yf.Ticker(symbol)
-        hist = stock.history(period=period, interval=interval)
-        return hist
+        # 自動嘗試 .TW 或 .TWO
+        sid = stock_id
+        if not sid.endswith('.TW') and not sid.endswith('.TWO'):
+            sid = f"{stock_id}.TW"
+        
+        stock = yf.Ticker(sid)
+        price = stock.fast_info.last_price
+        # 嘗試抓 .TWO 如果 .TW 失敗 (雖不精確但堪用)
+        if price is None: 
+            stock = yf.Ticker(f"{stock_id}.TWO")
+            price = stock.fast_info.last_price
+            
+        return price
     except:
-        return pd.DataFrame()
+        return 0
 
-# --- 3. 介面邏輯 ---
-st.title("💰 我的資產戰情室")
+# --- 3. 介面設計開始 ---
 
-try:
-    df_stocks = load_watchlist()
-except:
-    df_stocks = pd.DataFrame(columns=['stock_id', 'buy_target', 'sell_target', 'cost_price'])
+st.title("💰 家族股市帳本")
+st.caption("自動監控中，價格到了會通知 LINE")
 
-with st.sidebar:
-    st.header("⚙️ 庫存管理")
-    
-    if not df_stocks.empty:
-        stock_list = df_stocks['stock_id'].tolist()
-        selected_stock_id = st.selectbox("選擇要查看/編輯的股票：", stock_list)
+# 建立兩個分頁
+tab1, tab2 = st.tabs(["📊 目前持股", "⚙️ 新增/刪除"])
+
+# 載入目前的清單
+current_stocks, sha = load_data()
+
+# === 分頁 1: 看盤介面 (大字體、顏色鮮明) ===
+with tab1:
+    if not current_stocks:
+        st.info("目前沒有監控中的股票，請去隔壁新增 👉")
     else:
-        selected_stock_id = None
-        st.info("目前沒有庫存，請新增股票。")
-
-    st.divider()
-    
-    with st.expander("➕ 新增 / 編輯持股"):
-        edit_id = st.text_input("股票代號", value=selected_stock_id if selected_stock_id else "")
+        # 總損益計算
+        total_profit = 0
         
-        curr_cost = 0.0
-        curr_buy = 0.0
-        curr_sell = 0.0
-        
-        if edit_id and not df_stocks.empty and edit_id in df_stocks['stock_id'].values:
-            row = df_stocks[df_stocks['stock_id'] == edit_id].iloc[0]
-            curr_cost = float(row.get('cost_price', 0))
-            curr_buy = float(row.get('buy_target', 0) or 0)
-            curr_sell = float(row.get('sell_target', 0) or 0)
-
-        new_cost = st.number_input("原始買進成本 (Cost)", value=curr_cost, min_value=0.0)
-        c1, c2 = st.columns(2)
-        new_buy = c1.number_input("預期加碼價 (Buy)", value=curr_buy, min_value=0.0)
-        new_sell = c2.number_input("預期獲利價 (Sell)", value=curr_sell, min_value=0.0)
-        
-        if st.button("💾 儲存 / 新增"):
-            if edit_id:
-                new_data = {
-                    'stock_id': edit_id,
-                    'cost_price': new_cost,
-                    'buy_target': new_buy if new_buy > 0 else None,
-                    'sell_target': new_sell if new_sell > 0 else None
-                }
-                
-                if edit_id in df_stocks['stock_id'].values:
-                    df_stocks = df_stocks[df_stocks['stock_id'] != edit_id]
-                
-                df_new = pd.concat([df_stocks, pd.DataFrame([new_data])], ignore_index=True)
-                save_watchlist(df_new)
-            else:
-                st.warning("請輸入代號")
-
-    if not df_stocks.empty:
-        with st.expander("🗑️ 刪除股票"):
-            if st.button(f"刪除 {selected_stock_id}"):
-                save_watchlist(df_stocks[df_stocks['stock_id'] != selected_stock_id])
-
-if selected_stock_id:
-    # 1. 先抓基本資料 (包含偵測 .TW 或 .TWO)
-    info, price, prev_close, major, inst, real_symbol = fetch_basic_info(selected_stock_id)
-    
-    if price is not None:
-        user_row = df_stocks[df_stocks['stock_id'] == selected_stock_id].iloc[0]
-        cost = float(user_row.get('cost_price', 0))
-        
-        change = price - prev_close
-        pct_change = (change / prev_close) * 100
-        
-        profit = 0
-        if cost > 0:
-            profit = (price - cost)
+        for item in current_stocks:
+            # 準備資料
+            sid = item['stock_id']
+            cost = float(item.get('cost_price', 0))
+            price = get_current_price(sid)
             
-        stock_name = info.get('shortName', real_symbol) if info else real_symbol
-        st.subheader(f"{stock_name} ({real_symbol})")
+            # 計算損益
+            profit = 0
+            profit_pct = 0
+            if price and cost > 0:
+                profit = (price - cost) * 1000 # 一張 1000 股
+                profit_pct = ((price - cost) / cost) * 100
+                total_profit += profit
+
+            # 卡片式顯示
+            with st.container():
+                # 標題列：股票代號
+                c1, c2 = st.columns([2, 2])
+                c1.subheader(f"🏷️ {sid}")
+                c2.write(f"現價: **{price:.1f}**")
+                
+                # 數據列
+                c3, c4, c5 = st.columns(3)
+                c3.metric("成本", f"{cost}")
+                
+                # 台股邏輯：賺錢顯示紅色(normal)，賠錢顯示綠色(inverse)
+                color_mode = "normal" if profit > 0 else "inverse"
+                c4.metric("預估損益", f"{int(profit)}", f"{profit_pct:.1f}%", delta_color=color_mode)
+                
+                # 設定列
+                buy = item.get('buy_target', '無')
+                sell = item.get('sell_target', '無')
+                c5.caption(f"🎯 買:{buy} / 賣:{sell}")
+                
+                st.divider() # 分隔線
         
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("現價", f"{price:.2f}", f"{pct_change:.2f}%")
-        m2.metric("原始成本", f"{cost}", delta=f"{profit:.1f} (損益)" if cost>0 else "未設定", delta_color="normal")
-        m3.metric("預期獲利價", user_row['sell_target'] or "-")
-        m4.metric("預期加碼價", user_row['buy_target'] or "-")
+        # 顯示總資產損益
+        st.markdown("### 🏦 總帳戶損益")
+        if total_profit > 0:
+            st.success(f"目前共賺：NT$ {int(total_profit):,}")
+        else:
+            st.error(f"目前共賠：NT$ {int(total_profit):,}")
 
-        tab1, tab2, tab3 = st.tabs(["📊 K線與走勢", "📑 基本面與法人", "📋 詳細報價表"])
+# === 分頁 2: 管理介面 (簡單表單) ===
+with tab2:
+    st.subheader("➕ 新增監控股票")
+    
+    with st.form("add_stock_form"):
+        col1, col2 = st.columns(2)
+        new_id = col1.text_input("股票代號 (例如 2330)", placeholder="輸入代號")
+        new_cost = col2.number_input("你的成本價 (沒買填 0)", min_value=0.0, step=0.1)
+        
+        col3, col4 = st.columns(2)
+        new_buy = col3.number_input("想買的價格 (選填)", min_value=0.0, step=0.1)
+        new_sell = col4.number_input("想賣的價格 (選填)", min_value=0.0, step=0.1)
+        
+        submit = st.form_submit_button("💾 儲存加入")
+        
+        if submit and new_id:
+            # 建立新資料物件
+            new_data = {
+                "stock_id": new_id,
+                "cost_price": new_cost,
+                "buy_target": new_buy if new_buy > 0 else None,
+                "sell_target": new_sell if new_sell > 0 else None,
+                "last_notify": {} # 初始化通知紀錄
+            }
+            # 加入清單並存檔
+            current_stocks.append(new_data)
+            save_data(current_stocks, sha)
+            st.success(f"成功加入 {new_id}！請重新整理頁面。")
+            st.rerun()
 
-        with tab1:
-            # --- 新增：K線週期選擇器 ---
-            k_col1, k_col2 = st.columns([1, 4])
-            with k_col1:
-                k_type = st.radio("選擇週期", ["日 K", "週 K", "月 K"], horizontal=True, label_visibility="collapsed")
-            
-            # 對應 yfinance 參數
-            if k_type == "日 K":
-                yf_interval = "1d"
-                yf_period = "1y"    # 日K看1年
-            elif k_type == "週 K":
-                yf_interval = "1wk"
-                yf_period = "5y"    # 週K看5年
-            else:
-                yf_interval = "1mo"
-                yf_period = "max"   # 月K看全部
-
-            # 2. 根據選擇去抓 K 線
-            hist = fetch_kline(real_symbol, interval=yf_interval, period=yf_period)
-
-            if not hist.empty:
-                # 畫圖
-                fig, ax = mpf.plot(
-                    hist, 
-                    type='candle', 
-                    style='yahoo', 
-                    volume=True, 
-                    mav=(5, 10, 20),
-                    title=f"{real_symbol} {k_type} ({yf_period})",
-                    returnfig=True
-                )
-                st.pyplot(fig)
-            else:
-                st.warning("暫無 K 線資料")
-
-        with tab2:
-            c_a, c_b = st.columns(2)
-            with c_a:
-                st.info("📊 **基本面數據**")
-                if info:
-                    pe = info.get('trailingPE', 'N/A')
-                    eps = info.get('trailingEps', 'N/A')
-                    dy = info.get('dividendYield')
-                    dy_str = f"{dy*100:.2f}%" if dy else "N/A"
-                    h52 = info.get('fiftyTwoWeekHigh', 'N/A')
-                    l52 = info.get('fiftyTwoWeekLow', 'N/A')
-                else:
-                    pe = eps = dy_str = h52 = l52 = "N/A"
-
-                fund_data = {
-                    "項目": ["本益比 (PE)", "每股盈餘 (EPS)", "股息殖利率", "52週最高", "52週最低"],
-                    "數值": [str(pe), str(eps), str(dy_str), str(h52), str(l52)]
-                }
-                st.dataframe(pd.DataFrame(fund_data).astype(str), use_container_width=True)
-
-            with c_b:
-                st.info("🏢 **機構與大股東持股**")
-                if major is not None and not major.empty:
-                    st.dataframe(major.astype(str), use_container_width=True)
-                elif inst is not None and not inst.empty:
-                    st.dataframe(inst.astype(str), use_container_width=True)
-                else:
-                    st.write("查無資料或連線受限")
-
-        with tab3:
-            st.caption("詳細交易數據 (依照選擇的週期)")
-            if not hist.empty:
-                # 顯示最近 5 筆 (根據日/週/月)
-                display_df = hist[['Open', 'High', 'Low', 'Close', 'Volume']].sort_index(ascending=False).head(5)
-                st.dataframe(
-                    display_df,
-                    use_container_width=True,
-                    column_config={
-                        "Open": st.column_config.NumberColumn("開盤", format="$%.2f"),
-                        "High": st.column_config.NumberColumn("最高", format="$%.2f"),
-                        "Low": st.column_config.NumberColumn("最低", format="$%.2f"),
-                        "Close": st.column_config.NumberColumn("收盤", format="$%.2f"),
-                        "Volume": st.column_config.ProgressColumn(
-                            "成交量", 
-                            format="%d", 
-                            min_value=0, 
-                            max_value=int(hist['Volume'].max())
-                        ),
-                    }
-                )
-    else:
-        st.error(f"⚠️ 無法取得 {selected_stock_id} 的價格資訊。\n\n程式已嘗試上市 (.TW) 與上櫃 (.TWO) 後綴，但皆無回應。\n請確認代號是否正確，或稍後再試。")
-
-else:
-    st.info("👈 請從左側選單選擇一支股票，開始管理你的資產！")
+    st.markdown("---")
+    st.subheader("🗑️ 刪除股票")
+    
+    # 刪除選單
+    if current_stocks:
+        # 製作一個選單列表: "2330 (成本: 500)"
+        options = [f"{s['stock_id']} (成本: {s.get('cost_price', 0)})" for s in current_stocks]
+        selected_option = st.selectbox("選擇要刪除的股票", options)
+        
+        if st.button("確認刪除 ❌"):
+            # 找出選了第幾個，把它刪掉
+            idx = options.index(selected_option)
+            del current_stocks[idx]
+            save_data(current_stocks, sha)
+            st.warning("已刪除！")
+            time.sleep(1)
+            st.rerun()
