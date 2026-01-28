@@ -8,28 +8,34 @@ from github import Github
 
 # --- 設定區 ---
 JSON_FILE = 'stocks.json'
-REPO_NAME = "shuoisme/stock-bot"  # ⚠️ 確認這裡跟你的專案名稱一樣
+REPO_NAME = "shuoisme/stock-bot"  # ⚠️ 這裡要是你的 "帳號/專案名稱"
 TZ_TAIWAN = timezone(timedelta(hours=8))
 
-# --- LINE 推播 ---
+# --- 1. LINE Messaging API 推播功能 ---
 def send_line_push(msg):
     token = os.environ.get("LINE_ACCESS_TOKEN")
     user_id = os.environ.get("LINE_USER_ID")
     
     if not token or not user_id:
-        print("❌ 未設定 LINE Token 或 User ID")
+        print("❌ 錯誤: 未設定 LINE_ACCESS_TOKEN 或 LINE_USER_ID")
         return
 
     url = "https://api.line.me/v2/bot/message/push"
-    headers = {"Content-Type": "application/json", "Authorization": "Bearer " + token}
-    payload = {"to": user_id, "messages": [{"type": "text", "text": msg}]}
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + token
+    }
+    payload = {
+        "to": user_id,
+        "messages": [{"type": "text", "text": msg}]
+    }
     
     try:
         requests.post(url, headers=headers, json=payload)
     except Exception as e:
         print(f"推播錯誤: {e}")
 
-# 格式化
+# 格式化訊息
 def format_alert_msg(symbol, price, title, pct=0, target=None, pl_str=""):
     now_str = datetime.now(TZ_TAIWAN).strftime('%H:%M')
     msg = f"{title} {symbol}\n🕒 {now_str}\n💰 {price:.2f}"
@@ -38,7 +44,7 @@ def format_alert_msg(symbol, price, title, pct=0, target=None, pl_str=""):
     if pl_str: msg += f"\n{pl_str}"
     return msg
 
-# 抓價
+# --- 2. 抓價功能 ---
 def fetch_price_data(stock_id):
     def _try_get(symbol):
         try:
@@ -48,6 +54,7 @@ def fetch_price_data(stock_id):
             return price, prev, symbol
         except:
             return None, None, None
+
     if not stock_id.isdigit(): return _try_get(stock_id)
     p, prev, s = _try_get(f"{stock_id}.TW")
     if p: return p, prev, s
@@ -55,29 +62,38 @@ def fetch_price_data(stock_id):
     if p: return p, prev, s
     return None, None, None
 
-# --- 核心邏輯 (強制測試版) ---
+# --- 3. 核心檢查邏輯 ---
 def check_stock():
     gh_token = os.environ.get("GH_TOKEN")
-    if not gh_token: return
+    if not gh_token:
+        print("❌ 未設定 GH_TOKEN")
+        return
 
     g = Github(gh_token)
     try:
         repo = g.get_repo(REPO_NAME)
         contents = repo.get_contents(JSON_FILE)
         stock_list = json.loads(contents.decoded_content.decode())
-    except:
+    except Exception as e:
+        print(f"讀取檔案失敗: {e}")
         return
 
     now = datetime.now(TZ_TAIWAN)
     today_str = now.strftime('%Y-%m-%d')
+    current_hour = now.hour
+    current_min = now.minute
     
-    # 👇👇👇 改了這裡：強制開啟報價功能 👇👇👇
-    is_report_time = True 
-    # (原本的的時間判斷被我拿掉了，這樣你現在跑一定會有反應)
-
-    print(f"🔍 強制測試開始... (日期: {today_str})")
-    report_msgs = []
     need_save = False
+    
+    # ✅ 正式版邏輯：只在特定時段開啟報價
+    is_report_time = False
+    if (current_hour == 11 and current_min < 10) or \
+       (current_hour == 13 and current_min < 10) or \
+       (current_hour == 13 and 45 <= current_min < 55):
+        is_report_time = True
+
+    print(f"🔍 開始巡邏... (日期: {today_str})")
+    report_msgs = []
 
     for item in stock_list:
         sid = item['stock_id']
@@ -91,6 +107,7 @@ def check_stock():
         if price and prev_close:
             change_pct = ((price - prev_close) / prev_close) * 100
             
+            # 損益計算
             pl_str = ""
             if cost_price > 0:
                 pl_val = price - cost_price
@@ -98,47 +115,64 @@ def check_stock():
                 sign = "+" if pl_val > 0 else ""
                 pl_str = f"損益: {sign}{pl_val:.1f} ({sign}{pl_pct:.1f}%)"
 
-            # 警報邏輯 (保留)
+            # --- A. 突發狀況監控 (漲跌停/買賣點) ---
+            alert_tag = ""
+            
+            # 判斷邏輯：觸發條件 AND 今天還沒通知過
             if change_pct >= 9.5:
                 if notify_record.get('limit_up') != today_str:
-                    send_line_push(format_alert_msg(real_symbol, price, "🔥[漲停通知]", pct=change_pct, pl_str=pl_str))
+                    msg = format_alert_msg(real_symbol, price, "🔥[漲停通知]", pct=change_pct, pl_str=pl_str)
+                    send_line_push(msg)
                     notify_record['limit_up'] = today_str
                     need_save = True
+                alert_tag = " 🔥[漲停]"
+
             elif change_pct <= -9.5:
                 if notify_record.get('limit_down') != today_str:
-                    send_line_push(format_alert_msg(real_symbol, price, "🤮[跌停通知]", pct=change_pct, pl_str=pl_str))
+                    msg = format_alert_msg(real_symbol, price, "🤮[跌停通知]", pct=change_pct, pl_str=pl_str)
+                    send_line_push(msg)
                     notify_record['limit_down'] = today_str
                     need_save = True
+                alert_tag = " 🤮[跌停]"
+
             elif buy_target and price <= buy_target:
                 if notify_record.get('buy') != today_str:
-                    send_line_push(format_alert_msg(real_symbol, price, "✅[買進訊號]", target=buy_target, pl_str=pl_str))
+                    msg = format_alert_msg(real_symbol, price, "✅[買進訊號]", target=buy_target, pl_str=pl_str)
+                    send_line_push(msg)
                     notify_record['buy'] = today_str
                     need_save = True
+                alert_tag = " ✅[買點]"
+
             elif sell_target and price >= sell_target:
                 if notify_record.get('sell') != today_str:
-                    send_line_push(format_alert_msg(real_symbol, price, "💰[獲利訊號]", target=sell_target, pl_str=pl_str))
+                    msg = format_alert_msg(real_symbol, price, "💰[獲利訊號]", target=sell_target, pl_str=pl_str)
+                    send_line_push(msg)
                     notify_record['sell'] = today_str
                     need_save = True
+                alert_tag = " 💰[賣點]"
 
             item['last_notify'] = notify_record
 
-            # 收集報價 (因為 is_report_time 強制為 True，這裡一定會執行)
+            # --- B. 定時報價 ---
             if is_report_time:
                 icon = "🔺" if change_pct > 0 else "🔻" if change_pct < 0 else "➖"
                 pl_line = f"\n   └ {pl_str}" if pl_str else ""
-                line_msg = f"{real_symbol}: {price:.2f} {icon}({change_pct:.2f}%){pl_line}"
+                line_msg = f"{real_symbol}: {price:.2f} {icon}({change_pct:.2f}%){alert_tag}{pl_line}"
                 report_msgs.append(line_msg)
 
-    # 存檔
+    # 存檔 (如果有觸發新的通知)
     if need_save:
         try:
             new_content = json.dumps(stock_list, indent=2, ensure_ascii=False)
-            repo.update_file(contents.path, f"Update record {today_str}", new_content, contents.sha)
-        except: pass
+            repo.update_file(contents.path, f"Update notify record {today_str}", new_content, contents.sha)
+            print("💾 紀錄已更新")
+        except Exception as e:
+            print(f"❌ 存檔失敗: {e}")
 
-    # 發送測試報告
-    if report_msgs:
-        full_msg = f"🧪 [強制測試] 行情回報\n" + "-"*15 + "\n" + "\n\n".join(report_msgs)
+    # 發送定時報價
+    if report_msgs and is_report_time:
+        title = "🍱 [午盤]" if current_hour == 11 else "☕ [尾盤]" if current_hour == 13 and current_min < 10 else "🌅 [收盤]"
+        full_msg = f"{title} 行情回報\n" + "-"*15 + "\n" + "\n\n".join(report_msgs)
         send_line_push(full_msg)
 
 if __name__ == "__main__":
