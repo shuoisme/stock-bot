@@ -5,7 +5,8 @@ import yfinance as yf
 from github import Github
 
 # --- 設定頁面 ---
-st.set_page_config(page_title="股市帳本", page_icon="💰", layout="centered")
+st.set_page_config(page_title="股市帳本", page_icon="💰", layout="wide") 
+# 👆 注意：我把 layout 改成 "wide" (寬螢幕)，這樣 5 個數字排一排才不會擠
 
 # --- 1. 連接 GitHub ---
 def get_repo():
@@ -28,7 +29,7 @@ def save_data(data, sha):
     content = repo.get_contents("stocks.json")
     repo.update_file("stocks.json", "Update from App", json.dumps(data, indent=2, ensure_ascii=False), content.sha)
 
-# --- 2. 抓取股價 (強力抓取) ---
+# --- 2. 抓取股價 ---
 def get_price_data(ticker):
     try:
         stock = yf.Ticker(ticker)
@@ -46,18 +47,14 @@ def get_current_price(stock_id):
         price = get_price_data(stock_id)
         if price: return price
         return 0
-    
     price = get_price_data(f"{stock_id}.TW")
     if price: return price
-
     price = get_price_data(f"{stock_id}.TWO")
     if price: return price
-
     return 0
 
 # --- 3. 介面設計 ---
 st.title("💰 股市帳本")
-st.caption("即時資產損益表")
 
 tab1, tab2 = st.tabs(["📊 資產看板", "➕ 新增股票"])
 
@@ -68,8 +65,8 @@ with tab1:
     if not current_stocks:
         st.info("目前沒有股票，請去隔壁新增 👉")
     else:
-        total_market_value = 0 # 總資產
-        total_invest_cost = 0  # 總成本
+        total_market_value = 0 
+        total_invest_cost = 0  
         
         for i, item in enumerate(current_stocks):
             sid = item['stock_id']
@@ -78,14 +75,9 @@ with tab1:
             buy_target = float(item.get('buy_target', 0) or 0)
             sell_target = float(item.get('sell_target', 0) or 0)
             
-            # 抓現價
             price = get_current_price(sid)
             
-            # 核心計算
-            # 1. 總投入成本 = 平均成本 * 張數 * 1000
             invest_cost = cost * qty * 1000
-            
-            # 2. 股票現值 = 現價 * 張數 * 1000
             market_value = 0
             profit = 0
             profit_pct = 0
@@ -96,85 +88,71 @@ with tab1:
                     profit = market_value - invest_cost
                     profit_pct = (profit / invest_cost) * 100
                 
-                # 累加到總帳戶
                 total_market_value += market_value
                 total_invest_cost += invest_cost
 
-            # --- 卡片顯示 ---
-            with st.container():
-                # 標題與現價
+            # --- 👇 重點修改：使用 container(border=True) 把它們框在一起 ---
+            with st.container(border=True):
+                # 第一行：股票名稱與大大的現價
                 display_name = sid.replace(".TW", "").replace(".TWO", "")
                 
-                # 使用 columns 讓標題跟現價排在同一行
-                head1, head2 = st.columns([3, 2])
-                head1.subheader(f"🏷️ {display_name}")
-                if price:
-                    head2.markdown(f"#### 💲 現價: {price:.1f}")
-                else:
-                    head2.markdown("#### 💲 讀取中...")
+                # 標題區
+                top_c1, top_c2 = st.columns([1, 4])
+                with top_c1:
+                    st.markdown(f"### 🏷️ {display_name}")
+                with top_c2:
+                    if price:
+                        # 根據漲跌變色 (這只是裝飾，用來顯示現價)
+                        color = "red" if price > cost else "green"
+                        st.markdown(f"#### :test_tube: 現價: **{price:.1f}**")
+                    else:
+                        st.write("讀取中...")
 
-                st.markdown("---") # 分隔線
-
-                # 第一排：基本資料 (張數、單價)
-                r1_c1, r1_c2, r1_c3 = st.columns(3)
-                r1_c1.metric("📦 持有張數", f"{qty} 張")
-                r1_c2.metric("💵 平均成本", f"{cost}")
-                # 這裡留空或是放監控價
-                r1_c3.caption(f"監控買: {buy_target or '無'}\n\n監控賣: {sell_target or '無'}")
-
-                # 第二排：財務數據 (總成本、現值、損益) -> 這是這次改版的重點
-                r2_c1, r2_c2, r2_c3 = st.columns(3)
+                # 第二行：5 個關鍵數據排排站 (緊湊模式)
+                # 使用 5 個欄位，讓它們擠在一起，看起來就是一組的
+                m1, m2, m3, m4, m5 = st.columns(5)
                 
-                # 總成本
-                r2_c1.metric("💰 總投入成本", f"${int(invest_cost):,}")
+                m1.metric("📦 持有張數", f"{qty} 張")
+                m2.metric("💵 平均成本", f"{cost}")
+                m3.metric("💰 總本金", f"${int(invest_cost/1000)}k", help="這是你的總投入成本") 
+                # ^ 為了省空間，這裡顯示 k (千元)，例如 15.4k
                 
-                # 現值
-                r2_c2.metric("🏦 股票現值", f"${int(market_value):,}")
+                m4.metric("🏦 股票現值", f"${int(market_value/1000)}k")
                 
-                # 損益 (紅賺綠賠)
                 color_mode = "normal" if profit > 0 else "inverse"
-                r2_c3.metric("📉 帳面損益", f"${int(profit):,}", f"{profit_pct:.1f}%", delta_color=color_mode)
+                m5.metric("📉 損益", f"${int(profit):,}", f"{profit_pct:.1f}%", delta_color=color_mode)
 
-                # 修改按鈕
-                with st.expander(f"🛠️ 修改 {display_name} 設定"):
+                # 修改區 (隱藏在摺疊選單裡，保持版面乾淨)
+                with st.expander(f"⚙️ 設定 {display_name}"):
                     with st.form(key=f"edit_{i}_{sid}"):
-                        ce1, ce2 = st.columns(2)
-                        new_qty = ce1.number_input("持有張數", value=qty, step=0.1, key=f"q_{i}")
-                        new_cost = ce2.number_input("平均成本", value=cost, step=0.1, key=f"c_{i}")
-                        
-                        ce3, ce4 = st.columns(2)
-                        new_buy = ce3.number_input("監控買點", value=buy_target, step=0.1, key=f"b_{i}")
-                        new_sell = ce4.number_input("監控賣點", value=sell_target, step=0.1, key=f"s_{i}")
+                        ce1, ce2, ce3, ce4 = st.columns(4)
+                        new_qty = ce1.number_input("張數", value=qty, step=0.1)
+                        new_cost = ce2.number_input("成本", value=cost, step=0.1)
+                        new_buy = ce3.number_input("監控買", value=buy_target, step=0.1)
+                        new_sell = ce4.number_input("監控賣", value=sell_target, step=0.1)
                         
                         b1, b2 = st.columns([1, 1])
-                        if b1.form_submit_button("💾 儲存修改"):
+                        if b1.form_submit_button("💾 儲存"):
                             item['qty'] = new_qty
                             item['cost_price'] = new_cost
                             item['buy_target'] = new_buy if new_buy > 0 else None
                             item['sell_target'] = new_sell if new_sell > 0 else None
                             save_data(current_stocks, sha)
-                            st.toast("✅ 更新成功")
-                            time.sleep(1)
                             st.rerun()
 
                         if b2.form_submit_button("🗑️ 刪除", type="primary"):
                             current_stocks.pop(i)
                             save_data(current_stocks, sha)
-                            st.toast("❌ 已刪除")
-                            time.sleep(1)
                             st.rerun()
-                st.divider()
 
-        # 頁面最下方的總結算
-        total_profit_all = total_market_value - total_invest_cost
-        st.markdown("### 🏆 家族總資產結算")
-        
-        m1, m2, m3 = st.columns(3)
-        m1.metric("總投入本金", f"${int(total_invest_cost):,}")
-        m2.metric("目前總市值", f"${int(total_market_value):,}")
-        
-        final_color = "normal" if total_profit_all > 0 else "inverse"
-        m3.metric("總損益", f"${int(total_profit_all):,}", delta_color=final_color)
+        # 底部總結
+        st.divider()
+        st.markdown("### 🏆 總資產總覽")
+        f1, f2, f3 = st.columns(3)
+        f1.metric("總投入本金", f"${int(total_invest_cost):,}")
+        f2.metric("目前總市值", f"${int(total_market_value):,}")
+        final_color = "normal" if (total_market_value - total_invest_cost) > 0 else "inverse"
+        f3.metric("總損益", f"${int(total_market_value - total_invest_cost):,}", delta_color=final_color)
 
 # === 分頁 2: 新增 ===
 with tab2:
