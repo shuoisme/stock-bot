@@ -85,7 +85,7 @@ def check_stock():
     
     need_save = False
     
-    # ✅ 正式版邏輯：只在特定時段開啟報價
+    # ✅ 正式版邏輯：只在特定時段開啟報價 (幫你省額度)
     is_report_time = False
     if (current_hour == 11 and current_min < 10) or \
        (current_hour == 13 and current_min < 10) or \
