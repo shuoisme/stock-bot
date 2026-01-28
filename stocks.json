@@ -1,32 +1,39 @@
 [
   {
-    "stock_id":"5521",
-    "buy_target":null,
-    "sell_target":23.0,
-    "cost_price":15.4
+    "stock_id": "5521",
+    "buy_target": null,
+    "sell_target": 23.0,
+    "cost_price": 15.4,
+    "last_notify": {}
   },
   {
-    "stock_id":"3071",
-    "buy_target":null,
-    "sell_target":35.0,
-    "cost_price":27.1
+    "stock_id": "3071",
+    "buy_target": null,
+    "sell_target": 35.0,
+    "cost_price": 27.1,
+    "last_notify": {}
   },
   {
-    "stock_id":"2312",
-    "buy_target":null,
-    "sell_target":50.0,
-    "cost_price":34.1
+    "stock_id": "2312",
+    "buy_target": null,
+    "sell_target": 50.0,
+    "cost_price": 34.1,
+    "last_notify": {}
   },
   {
-    "stock_id":"6182",
-    "buy_target":null,
-    "sell_target":50.0,
-    "cost_price":39.2
+    "stock_id": "6182",
+    "buy_target": null,
+    "sell_target": 50.0,
+    "cost_price": 39.2,
+    "last_notify": {}
   },
   {
-    "stock_id":"2303",
-    "buy_target":null,
-    "sell_target":75.0,
-    "cost_price":50.0
+    "stock_id": "2303",
+    "buy_target": null,
+    "sell_target": 75.0,
+    "cost_price": 50.0,
+    "last_notify": {
+      "sell": "2026-01-29"
+    }
   }
 ]
