@@ -5,7 +5,7 @@ on:
     - cron: '*/5 1-6 * * 1-5' # 台灣時間 09:00 - 14:00 每5分
   workflow_dispatch:          # 允許手動按按鈕測試
 
-# 👇 關鍵修改 1：給予機器人「寫入權限」，讓它可以記錄今天已通知過
+# 👇 關鍵 1：給予機器人「寫入權限」，讓它可以記錄今天已通知過 (記憶功能)
 permissions:
   contents: write
 
@@ -20,7 +20,9 @@ jobs:
       - run: pip install -r requirements.txt
       
       - env:
-          # 👇 關鍵修改 2：傳入 LINE 權杖 與 GitHub 權杖
-          LINE_TOKEN: ${{ secrets.LINE_TOKEN }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # 這是 GitHub 內建的，不用自己設定 Secret
+          # 👇 關鍵修改 2：這裡的名字一定要跟 main.py 裡寫的一模一樣！
+          # 左邊是給 Python 看的名字 : 右邊是讀取 GitHub Secrets 的倉庫
+          LINE_ACCESS_TOKEN: ${{ secrets.LINE_ACCESS_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python main.py
