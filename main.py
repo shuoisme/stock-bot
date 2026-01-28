@@ -98,7 +98,7 @@ def check_stock():
     need_save = False
     
     # 定義報告時間 (11:00, 13:00, 13:45)
-    is_report_time = False
+    is_report_time = True
     if (current_hour == 11 and current_min < 10) or \
        (current_hour == 13 and current_min < 10) or \
        (current_hour == 13 and 45 <= current_min < 55):
@@ -195,3 +195,4 @@ def check_stock():
 
 if __name__ == "__main__":
     check_stock()
+
