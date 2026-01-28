@@ -98,11 +98,15 @@ def check_stock():
     need_save = False
     
     # 定義報告時間 (11:00, 13:00, 13:45)
+# 定義報告時間 (11:00, 13:00, 13:45)
+    # is_report_time = False
+    # if (current_hour == 11 and current_min < 10) or \
+    #    (current_hour == 13 and current_min < 10) or \
+    #    (current_hour == 13 and 45 <= current_min < 55):
+    #     is_report_time = True
+    
+    # 👇 改成這樣：不管幾點，強迫它現在報價！
     is_report_time = True
-    if (current_hour == 11 and current_min < 10) or \
-       (current_hour == 13 and current_min < 10) or \
-       (current_hour == 13 and 45 <= current_min < 55):
-        is_report_time = True
 
     print(f"🔍 開始巡邏... (日期: {today_str})")
     report_msgs = []
@@ -195,4 +199,5 @@ def check_stock():
 
 if __name__ == "__main__":
     check_stock()
+
 
