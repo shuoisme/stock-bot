@@ -11,7 +11,8 @@
     "buy_target": null,
     "sell_target": 35.0,
     "cost_price": 27.1,
-    "last_notify": {}
+    "last_notify": {},
+    "qty": 7.0
   },
   {
     "stock_id": "2312",
