@@ -5,7 +5,7 @@ import yfinance as yf
 from github import Github
 
 # --- 設定頁面 ---
-st.set_page_config(page_title="家族股市帳本", page_icon="💰", layout="centered")
+st.set_page_config(page_title="股市帳本", page_icon="💰", layout="centered")
 
 # --- 1. 連接 GitHub ---
 def get_repo():
@@ -50,7 +50,7 @@ def get_current_price(stock_id):
         return 0
 
 # --- 3. 介面設計 ---
-st.title("💰 家族股市帳本")
+st.title("💰 股市帳本")
 st.caption("支援上市/上櫃與張數計算")
 
 tab1, tab2 = st.tabs(["📊 持股管理 (修改/刪除)", "➕ 新增股票"])
@@ -190,3 +190,4 @@ with tab2:
                     st.rerun()
             else:
                 st.error("請輸入代號")
+
