@@ -5,7 +5,7 @@ import yfinance as yf
 from github import Github
 
 # --- 設定頁面 ---
-st.set_page_config(page_title="家族股市帳本", page_icon="💰", layout="centered")
+st.set_page_config(page_title="股市帳本", page_icon="💰", layout="centered")
 
 # --- 1. 連接 GitHub ---
 def get_repo():
@@ -28,48 +28,45 @@ def save_data(data, sha):
     content = repo.get_contents("stocks.json")
     repo.update_file("stocks.json", "Update from App", json.dumps(data, indent=2, ensure_ascii=False), content.sha)
 
-# --- 2. 抓取股價 (強力抓取版：專治上櫃抓不到) ---
+# --- 2. 抓取股價 (強力抓取核心) ---
 def get_price_data(ticker):
     """
-    這是一個內部小幫手，先試 fast_info，失敗就試 history
+    自動切換通道：先試快速通道，不行就翻歷史紀錄
     """
     try:
         stock = yf.Ticker(ticker)
-        
-        # 1. 先試試看快速通道 (最快，但上櫃有時會失敗)
+        # 1. 快速通道
         price = stock.fast_info.last_price
         
-        # 2. 如果失敗 (None)，啟動 B 計畫：抓最近一天的歷史資料
+        # 2. 歷史通道 (專治上櫃抓不到的問題)
         if price is None or price == 0:
             hist = stock.history(period="1d")
             if not hist.empty:
-                price = hist['Close'].iloc[-1]  # 拿最後一筆收盤價
+                price = hist['Close'].iloc[-1]
         
         return price
     except:
         return None
 
 def get_current_price(stock_id):
-    # Case 1: 如果代號已經有 .TW 或 .TWO (例如從修改介面強制指定的)
+    # 如果代號已經有 .TW 或 .TWO，直接查
     if stock_id.endswith('.TW') or stock_id.endswith('.TWO'):
         price = get_price_data(stock_id)
         if price: return price
         return 0
 
-    # Case 2: 只有數字 (例如 3071)，開始猜測
-    # 優先猜：上市 (.TW)
+    # 如果只有數字，先猜上市，再猜上櫃
     price = get_price_data(f"{stock_id}.TW")
     if price: return price
 
-    # 沒抓到？那一定是上櫃 (.TWO)！
     price = get_price_data(f"{stock_id}.TWO")
     if price: return price
 
     return 0
 
 # --- 3. 介面設計 ---
-st.title("💰 家族股市帳本")
-st.caption("支援上市/上櫃強力抓取")
+st.title("💰 股市帳本")
+st.caption("自動更新股價")
 
 tab1, tab2 = st.tabs(["📊 持股列表", "➕ 新增股票"])
 
@@ -105,10 +102,8 @@ with tab1:
                 # 標題列
                 c1, c2 = st.columns([2, 2])
                 
-                # 顯示目前的代號
-                display_name = sid
-                if not (sid.endswith('.TW') or sid.endswith('.TWO')):
-                     display_name += " (自動偵測)"
+                # 介面優化：如果是自動偵測的，不用顯示 (自動偵測) 這麼長，顯示乾淨的代號就好
+                display_name = sid.replace(".TW", "").replace(".TWO", "")
                 
                 c1.subheader(f"🏷️ {display_name}")
                 c2.markdown(f"### 💲 {price:.1f}" if price else "💲 讀取中...")
@@ -123,48 +118,27 @@ with tab1:
                 k3.caption(f"買點: {buy_target or '無'}")
                 k3.caption(f"賣點: {sell_target or '無'}")
 
-                # 修改選單
-                with st.expander(f"🛠️ 修改/刪除 {sid}"):
+                # 修改選單 (極簡化：只留真正會用到的)
+                with st.expander(f"🛠️ 修改設定"):
                     with st.form(key=f"edit_{i}_{sid}"):
-                        st.write("🔧 基本設定")
                         ce1, ce2 = st.columns(2)
                         new_qty = ce1.number_input("持有張數", value=qty, step=0.1, key=f"q_{i}")
                         new_cost = ce2.number_input("平均成本", value=cost, step=0.1, key=f"c_{i}")
                         
-                        st.write("🔔 通知設定")
                         ce3, ce4 = st.columns(2)
                         new_buy = ce3.number_input("監控買點", value=buy_target, step=0.1, key=f"b_{i}")
                         new_sell = ce4.number_input("監控賣點", value=sell_target, step=0.1, key=f"s_{i}")
 
-                        st.write("🔄 市場修正 (如果抓不到請改這裡)")
+                        # 那些複雜的「強制修改市場」按鈕都拿掉了！
                         
-                        market_fix = st.radio("強制指定市場", 
-                                              ["保持原樣", "強制改上市 (.TW)", "強制改上櫃 (.TWO)"],
-                                              key=f"m_{i}",
-                                              horizontal=True)
-
                         b1, b2 = st.columns([1, 1])
                         
                         if b1.form_submit_button("💾 儲存修改"):
-                            # 1. 更新數值
                             item['qty'] = new_qty
                             item['cost_price'] = new_cost
                             item['buy_target'] = new_buy if new_buy > 0 else None
                             item['sell_target'] = new_sell if new_sell > 0 else None
                             
-                            # 2. 處理市場修正
-                            new_sid = sid
-                            base_id = sid.replace('.TW', '').replace('.TWO', '')
-                            
-                            if "強制改上市" in market_fix:
-                                new_sid = f"{base_id}.TW"
-                            elif "強制改上櫃" in market_fix:
-                                new_sid = f"{base_id}.TWO"
-                            
-                            if new_sid != sid:
-                                item['stock_id'] = new_sid
-                                st.toast(f"已更名為 {new_sid}")
-
                             save_data(current_stocks, sha)
                             st.toast("✅ 資料已更新！")
                             time.sleep(1)
@@ -191,6 +165,7 @@ with tab2:
     with st.form("add_stock_form"):
         col1, col2 = st.columns([2, 1])
         new_code = col1.text_input("股票代號", placeholder="例如 3071")
+        # 這裡保留下拉選單，因為新增時選對市場可以加快讀取速度
         market_type = col2.selectbox("市場類別", ["上市 (.TW)", "上櫃 (.TWO)"])
         
         col3, col4 = st.columns(2)
@@ -203,11 +178,9 @@ with tab2:
 
         if st.form_submit_button("送出新增"):
             if new_code:
-                # 自動補後綴
                 suffix = ".TW" if "上市" in market_type else ".TWO"
                 final_id = new_code if new_code.endswith(suffix) else f"{new_code}{suffix}"
 
-                # 檢查重複
                 exists = any(s['stock_id'] == final_id for s in current_stocks)
                 if exists:
                     st.warning("這支股票已經在清單裡囉！")
