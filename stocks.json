@@ -72,15 +72,6 @@
     "last_notify": {}
   },
   {
-    "stock_id": "4123.TW",
-    "name": "晟德",
-    "qty": 2.101,
-    "cost_price": 49.8,
-    "buy_target": null,
-    "sell_target": null,
-    "last_notify": {}
-  },
-  {
     "stock_id": "4726.TW",
     "name": "永昕",
     "qty": 5.0,
