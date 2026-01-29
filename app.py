@@ -1,17 +1,24 @@
 import streamlit as st
 import json
 import time
+import requests # 👈 新增這個套件用來呼叫機器人
 import yfinance as yf
 from github import Github
 
 # --- 設定頁面 ---
 st.set_page_config(page_title="家族股市帳本", page_icon="💰", layout="wide") 
 
+# --- 設定區 ---
+# ⚠️ 請確認這裡跟你的 GitHub 專案名稱一模一樣
+REPO_NAME = "shuoisme/stock-bot" 
+WORKFLOW_FILE = "main.yml" # ⚠️ 你的 workflow 檔案名稱 (通常是 main.yml)
+BRANCH_NAME = "main"       # ⚠️ 你的分支名稱 (通常是 main)
+
 # --- 1. 連接 GitHub ---
 def get_repo():
     token = st.secrets["GH_TOKEN"]
     g = Github(token)
-    return g.get_repo("shuoisme/stock-bot")  # ⚠️ 確認你的帳號/專案名稱
+    return g.get_repo(REPO_NAME)
 
 def load_data():
     try:
@@ -28,7 +35,29 @@ def save_data(data, sha):
     content = repo.get_contents("stocks.json")
     repo.update_file("stocks.json", "Update from App", json.dumps(data, indent=2, ensure_ascii=False), content.sha)
 
-# --- 2. 抓取股價 ---
+# --- 🚀 新增功能：呼叫機器人 ---
+def trigger_bot():
+    token = st.secrets["GH_TOKEN"]
+    url = f"https://api.github.com/repos/{REPO_NAME}/actions/workflows/{WORKFLOW_FILE}/dispatches"
+    
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    data = {
+        "ref": BRANCH_NAME # 指定要執行的分支
+    }
+    
+    try:
+        response = requests.post(url, json=data, headers=headers)
+        if response.status_code == 204:
+            return True, "🚀 指令已發送！機器人約 30 秒後會回報。"
+        else:
+            return False, f"❌ 發送失敗 (代碼 {response.status_code})：{response.text}"
+    except Exception as e:
+        return False, f"❌ 連線錯誤：{str(e)}"
+
+# --- 2. 抓價功能 ---
 def get_price_data(ticker):
     try:
         stock = yf.Ticker(ticker)
@@ -55,6 +84,22 @@ def get_current_price(stock_id):
 # --- 3. 介面設計 ---
 st.title("💰 家族股市帳本")
 
+# 👇 側邊欄放「遙控器」
+with st.sidebar:
+    st.header("🎮 機器人遙控器")
+    st.write("按下去，機器人會馬上把最新報價傳到 LINE 群組！")
+    
+    if st.button("📣 立即 LINE 回報", type="primary", use_container_width=True):
+        with st.spinner("正在呼叫機器人起床..."):
+            success, msg = trigger_bot()
+            if success:
+                st.success(msg)
+            else:
+                st.error(msg)
+    
+    st.divider()
+    st.info("💡 提示：機器人啟動需要一點時間 (約 20~60 秒)，請耐心等待手機響起。")
+
 tab1, tab2 = st.tabs(["📊 資產看板", "➕ 新增股票"])
 
 current_stocks, sha = load_data()
@@ -69,7 +114,6 @@ with tab1:
         
         for i, item in enumerate(current_stocks):
             sid = item['stock_id']
-            # 👇 讀取名稱，如果是舊資料沒有名稱，就暫時用代號代替
             name = item.get('name', sid)
             
             cost = float(item.get('cost_price', 0))
@@ -93,15 +137,11 @@ with tab1:
                 total_market_value += market_value
                 total_invest_cost += invest_cost
 
-            # --- 卡片顯示 ---
             with st.container(border=True):
-                # 處理顯示用的代號 (拿掉 .TW)
                 clean_id = sid.replace(".TW", "").replace(".TWO", "")
                 
-                # 標題區：名稱 + 代號 (例如：台積電 2330)
                 top_c1, top_c2 = st.columns([1, 4])
                 with top_c1:
-                    # 👇 這裡顯示 中文名稱 + 代號
                     st.markdown(f"### {name}")
                     st.caption(f"代號: {clean_id}")
                 with top_c2:
@@ -111,7 +151,6 @@ with tab1:
                     else:
                         st.write("讀取中...")
 
-                # 數據區
                 m1, m2, m3, m4, m5 = st.columns(5)
                 m1.metric("📦 張數", f"{qty} 張")
                 m2.metric("💵 成本", f"{cost}")
@@ -121,12 +160,9 @@ with tab1:
                 color_mode = "normal" if profit > 0 else "inverse"
                 m5.metric("📉 損益", f"${int(profit):,}", f"{profit_pct:.1f}%", delta_color=color_mode)
 
-                # 修改區
                 with st.expander(f"⚙️ 設定 {name}"):
                     with st.form(key=f"edit_{i}_{sid}"):
-                        # 👇 新增：修改名稱的欄位
                         new_name = st.text_input("股票名稱", value=name)
-                        
                         ce1, ce2, ce3, ce4 = st.columns(4)
                         new_qty = ce1.number_input("張數", value=qty, step=0.1)
                         new_cost = ce2.number_input("成本", value=cost, step=0.1)
@@ -135,7 +171,6 @@ with tab1:
                         
                         b1, b2 = st.columns([1, 1])
                         if b1.form_submit_button("💾 儲存"):
-                            # 👇 儲存名稱
                             item['name'] = new_name
                             item['qty'] = new_qty
                             item['cost_price'] = new_cost
@@ -163,7 +198,6 @@ with tab2:
     with st.form("add_stock_form"):
         col1, col2, col3 = st.columns([1, 1, 1])
         new_code = col1.text_input("股票代號", placeholder="例如 2330")
-        # 👇 新增：名稱輸入框
         new_name_input = col2.text_input("股票名稱", placeholder="例如 台積電")
         market_type = col3.selectbox("市場類別", ["上市 (.TW)", "上櫃 (.TWO)"])
         
@@ -179,8 +213,6 @@ with tab2:
             if new_code:
                 suffix = ".TW" if "上市" in market_type else ".TWO"
                 final_id = new_code if new_code.endswith(suffix) else f"{new_code}{suffix}"
-                
-                # 如果使用者沒填名稱，就用代號代替，避免空白
                 final_name = new_name_input if new_name_input else final_id
 
                 exists = any(s['stock_id'] == final_id for s in current_stocks)
@@ -189,7 +221,7 @@ with tab2:
                 else:
                     new_data = {
                         "stock_id": final_id,
-                        "name": final_name,  # 👈 存入名稱
+                        "name": final_name,
                         "qty": new_qty,
                         "cost_price": new_cost,
                         "buy_target": new_buy if new_buy > 0 else None,
@@ -198,7 +230,7 @@ with tab2:
                     }
                     current_stocks.append(new_data)
                     save_data(current_stocks, sha)
-                    st.success(f"成功加入 {final_name} ({final_id})！")
+                    st.success(f"成功加入 {final_name}！")
                     time.sleep(1)
                     st.rerun()
             else:
