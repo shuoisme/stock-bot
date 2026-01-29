@@ -36,5 +36,13 @@
     "last_notify": {
       "limit_down": "2026-01-29"
     }
+  },
+  {
+    "stock_id": "2201.TW",
+    "qty": 1.0,
+    "cost_price": 79.6,
+    "buy_target": null,
+    "sell_target": null,
+    "last_notify": {}
   }
 ]
