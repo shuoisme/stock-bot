@@ -45,15 +45,6 @@
     "name": "宏碁"
   },
   {
-    "stock_id": "2230.TW",
-    "name": "泰茂",
-    "qty": 3.6,
-    "cost_price": 143.62,
-    "buy_target": null,
-    "sell_target": null,
-    "last_notify": {}
-  },
-  {
     "stock_id": "2409.TW",
     "name": "友達",
     "qty": 10.0,
