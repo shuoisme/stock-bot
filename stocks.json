@@ -72,5 +72,14 @@
     "buy_target": null,
     "sell_target": null,
     "last_notify": {}
+  },
+  {
+    "stock_id": "2883.TW",
+    "name": "凱基金",
+    "qty": 3.03,
+    "cost_price": 15.94,
+    "buy_target": null,
+    "sell_target": null,
+    "last_notify": {}
   }
 ]
