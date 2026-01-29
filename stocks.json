@@ -33,7 +33,9 @@
     "cost_price": 50.0,
     "last_notify": {
       "limit_down": "2026-01-29"
-    }
+    },
+    "name": "聯電",
+    "qty": 1.0
   },
   {
     "stock_id": "2201.TW",
