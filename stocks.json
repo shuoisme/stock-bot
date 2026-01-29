@@ -33,6 +33,8 @@
     "buy_target": null,
     "sell_target": 72.0,
     "cost_price": 50.0,
-    "last_notify": null
+    "last_notify": {
+      "limit_down": "2026-01-29"
+    }
   }
 ]
