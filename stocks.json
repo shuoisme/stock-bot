@@ -81,5 +81,14 @@
     "buy_target": null,
     "sell_target": null,
     "last_notify": {}
+  },
+  {
+    "stock_id": "2890.TW",
+    "name": "永豐金",
+    "qty": 14.599,
+    "cost_price": 15.28,
+    "buy_target": null,
+    "sell_target": null,
+    "last_notify": {}
   }
 ]
