@@ -97,5 +97,14 @@
     "buy_target": null,
     "sell_target": null,
     "last_notify": {}
+  },
+  {
+    "stock_id": "4726.TWO",
+    "name": "m/3uv ",
+    "qty": 5.0,
+    "cost_price": 60.9,
+    "buy_target": null,
+    "sell_target": null,
+    "last_notify": {}
   }
 ]
