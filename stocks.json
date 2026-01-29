@@ -13,7 +13,9 @@
     "buy_target": null,
     "sell_target": 50.0,
     "cost_price": 34.1,
-    "last_notify": {}
+    "last_notify": {},
+    "name": "金寶",
+    "qty": 5.0
   },
   {
     "stock_id": "6182",
