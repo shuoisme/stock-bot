@@ -22,7 +22,9 @@
     "buy_target": null,
     "sell_target": 50.0,
     "cost_price": 39.2,
-    "last_notify": {}
+    "last_notify": {},
+    "name": "ck6ur/ ",
+    "qty": 1.0
   },
   {
     "stock_id": "2303",
