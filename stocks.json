@@ -63,5 +63,14 @@
     "buy_target": null,
     "sell_target": null,
     "last_notify": {}
+  },
+  {
+    "stock_id": "2409.TW",
+    "name": "友達",
+    "qty": 10.0,
+    "cost_price": 16.8,
+    "buy_target": null,
+    "sell_target": null,
+    "last_notify": {}
   }
 ]
