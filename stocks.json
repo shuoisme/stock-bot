@@ -1,12 +1,5 @@
 [
   {
-    "stock_id": "5521",
-    "buy_target": null,
-    "sell_target": 22.0,
-    "cost_price": 15.4,
-    "last_notify": {}
-  },
-  {
     "stock_id": "3071",
     "buy_target": null,
     "sell_target": 35.0,
