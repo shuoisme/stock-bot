@@ -1,23 +1,22 @@
 name: Check Stock
 
 on:
-  # 1. 定時排程 (UTC 時間 = 台灣時間 - 8小時)
   schedule:
-    # 台灣 11:00 (UTC 03:00) - 午盤
+    # 台灣 11:00 (UTC 03:00)
     - cron: '0 3 * * 1-5'
-    # 台灣 13:00 (UTC 05:00) - 尾盤
+    # 台灣 13:00 (UTC 05:00)
     - cron: '0 5 * * 1-5'
-    # 台灣 13:45 (UTC 05:45) - 收盤 (提早去排隊)
+    # 台灣 13:45 (UTC 05:45)
     - cron: '45 5 * * 1-5'
-
-  # 2. 允許手動按按鈕執行 (網頁遙控器會用到這個)
+  
+  # 允許手動按按鈕
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     
-    # 👇 給予寫入權限 (重要)
+    # 👇 關鍵 1：給機器人寫入權限 (這樣用內建 Token 也可以)
     permissions:
       contents: write
 
@@ -36,10 +35,11 @@ jobs:
         pip install yfinance requests PyGithub
 
     - name: Run stock bot
+      # 👇 關鍵 2：這裡就是「遞鑰匙」的動作，缺一不可！
       env:
-        # 👇 這裡要對應你在 Secrets 設定的名字
         LINE_ACCESS_TOKEN: ${{ secrets.LINE_ACCESS_TOKEN }}
         LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
-        # 👇 建議改回 GH_TOKEN (我們之前手動設定的那個)，權限比較穩
-        GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        # 👇 這裡很重要！我們把 GitHub 內建的鑰匙 (GITHUB_TOKEN) 交給機器人
+        # 這樣你就不用擔心有沒有設定 GH_TOKEN 了，內建的最穩！
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: python main.py
