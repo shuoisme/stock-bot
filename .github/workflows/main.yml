@@ -1,28 +1,45 @@
-name: 股票監控
+name: Check Stock
 
 on:
+  # 1. 定時排程 (UTC 時間 = 台灣時間 - 8小時)
   schedule:
-    - cron: '*/5 1-6 * * 1-5' # 台灣時間 09:00 - 14:00 每5分
-  workflow_dispatch:          # 允許手動按按鈕測試
+    # 台灣 11:00 (UTC 03:00) - 午盤
+    - cron: '0 3 * * 1-5'
+    # 台灣 13:00 (UTC 05:00) - 尾盤
+    - cron: '0 5 * * 1-5'
+    # 台灣 13:45 (UTC 05:45) - 收盤 (提早去排隊)
+    - cron: '45 5 * * 1-5'
 
-# 👇 關鍵 1：給予機器人「寫入權限」，讓它可以記錄今天已通知過 (記憶功能)
-permissions:
-  contents: write
+  # 2. 允許手動按按鈕執行 (網頁遙控器會用到這個)
+  workflow_dispatch:
 
 jobs:
-  run-bot:
+  build:
     runs-on: ubuntu-latest
+    
+    # 👇 給予寫入權限 (重要)
+    permissions:
+      contents: write
+
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with: {python-version: '3.9'}
-      
-      - run: pip install -r requirements.txt
-      
-      - env:
-          # 👇 關鍵修改 2：這裡的名字一定要跟 main.py 裡寫的一模一樣！
-          # 左邊是給 Python 看的名字 : 右邊是讀取 GitHub Secrets 的倉庫
-          LINE_ACCESS_TOKEN: ${{ secrets.LINE_ACCESS_TOKEN }}
-          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python main.py
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install yfinance requests PyGithub
+
+    - name: Run stock bot
+      env:
+        # 👇 這裡要對應你在 Secrets 設定的名字
+        LINE_ACCESS_TOKEN: ${{ secrets.LINE_ACCESS_TOKEN }}
+        LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+        # 👇 建議改回 GH_TOKEN (我們之前手動設定的那個)，權限比較穩
+        GH_TOKEN: ${{ secrets.GH_TOKEN }}
+      run: python main.py
