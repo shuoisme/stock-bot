@@ -1,4 +1,3 @@
-import yfinance as yf
 import requests
 import os
 import json
@@ -8,7 +7,7 @@ from github import Github
 
 # --- 設定區 ---
 JSON_FILE = 'stocks.json'
-REPO_NAME = "shuoisme/stock-bot"  # ⚠️ 請再次確認這是你的 帳號/專案名稱
+REPO_NAME = "shuoisme/stock-bot"  # ⚠️ 確認你的帳號/專案名稱
 TZ_TAIWAN = timezone(timedelta(hours=8))
 
 # --- 1. LINE 推播功能 ---
@@ -38,71 +37,55 @@ def send_line_push(msg):
 # 格式化訊息
 def format_alert_msg(name, symbol, price, title, pct=0, diff=0, target=None, pl_str=""):
     now_str = datetime.now(TZ_TAIWAN).strftime('%H:%M')
-    clean_symbol = symbol.replace(".TW", "").replace(".TWO", "")
+    # 富果不需要 .TW，但顯示時我們還是可以保留原本的 ID 讓你看習慣
     change_str = f"{diff:+.2f} ({pct:+.2f}%)" if price > 0 else ""
-    msg = f"{title} {name} ({clean_symbol})\n🕒 {now_str}\n💰 {price:.2f} {change_str}"
+    msg = f"{title} {name} ({symbol})\n🕒 {now_str}\n💰 {price:.2f} {change_str}"
     if target: msg += f"\n🎯 目標: {target}"
     if pl_str: msg += f"\n{pl_str}"
     return msg
 
-# --- 2. 抓價功能 (V5.2 精準版 - 修正昨收誤差) ---
+# --- 2. 抓價功能 (V6.0 富果 Fugle 專業版) ---
 def fetch_price_data(stock_id):
-    def _get_data(ticker):
-        try:
-            stock = yf.Ticker(ticker)
+    # 取得 GitHub Secrets 裡的 Token
+    api_token = os.environ.get("FUGLE_TOKEN")
+    
+    if not api_token:
+        print("❌ 錯誤：找不到 FUGLE_TOKEN，請去 GitHub Settings 設定！")
+        return None, None, None
+
+    # 1. 處理代碼：富果只吃 "2330"，不吃 "2330.TW"
+    clean_symbol = stock_id.replace(".TW", "").replace(".TWO", "")
+
+    # 2. 呼叫富果 API (Intraday Quote)
+    url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{clean_symbol}"
+    headers = {
+        "X-API-KEY": api_token
+    }
+
+    try:
+        res = requests.get(url, headers=headers)
+        data = res.json()
+        
+        # 檢查是否有抓到資料
+        if "lastTrade" in data and "price" in data["lastTrade"]:
+            price = data["lastTrade"]["price"]
+            prev_close = data.get("previousClose") # 富果直接給官方昨收，絕對準確
             
-            # --- A. 抓取現價 (優先用 fast_info，因為最即時) ---
-            price = None
-            try:
-                price = stock.fast_info.last_price
-            except: pass
-            
-            # 如果 fast_info 失敗，改抓 K 線的最新一筆
-            if price is None:
-                hist = stock.history(period="1d")
-                if not hist.empty:
-                    price = hist['Close'].iloc[-1]
+            return price, prev_close, clean_symbol
+        else:
+            print(f"⚠️ 富果回傳無資料: {stock_id} (可能是下市或代號錯誤)")
+            return None, None, None
 
-            # --- B. 抓取昨收 (優先用 fast_info，這是官方參考價) ---
-            prev = None
-            try:
-                prev = stock.fast_info.previous_close
-            except: pass
+    except Exception as e:
+        print(f"❌ 富果連線失敗 {stock_id}: {e}")
+        return None, None, None
 
-            # 如果 fast_info 失敗，才改用 K 線的前一天收盤 (備案)
-            if prev is None:
-                hist_5d = stock.history(period="5d")
-                if len(hist_5d) >= 2:
-                    prev = hist_5d['Close'].iloc[-2]
-
-            # 只有當兩個價格都抓到，才回傳
-            if price and prev:
-                return price, prev
-            else:
-                return None, None
-        except:
-            return None, None
-
-    # 嘗試不同的後綴 (.TW 或 .TWO)
-    if stock_id.endswith('.TW') or stock_id.endswith('.TWO'):
-        p, prev = _get_data(stock_id)
-        if p: return p, prev, stock_id
-
-    # 嘗試加上 .TW (上市)
-    p, prev = _get_data(f"{stock_id}.TW")
-    if p: return p, prev, f"{stock_id}.TW"
-
-    # 嘗試加上 .TWO (上櫃)
-    p, prev = _get_data(f"{stock_id}.TWO")
-    if p: return p, prev, f"{stock_id}.TWO"
-
-    return None, None, None
 
 # --- 3. 核心檢查邏輯 ---
 def check_stock():
     gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not gh_token:
-        print("❌ 找不到 Token")
+        print("❌ 找不到 GH_TOKEN")
         return
 
     g = Github(gh_token)
@@ -124,16 +107,13 @@ def check_stock():
 
     need_save = False
     
-    # === 定義時間區段 ===
-    # 只要在這個時間範圍內，不管是不是手動按的，都視為該時段的報告
+    # === 時間區段 (與之前相同) ===
     is_lunch_time = (current_hour == 11 and current_min <= 30)
     is_tail_time = (current_hour == 13 and current_min <= 30)
-    is_close_time = (current_hour >= 13 and current_min >= 40) # 13:40 以後都算收盤
+    is_close_time = (current_hour >= 13 and current_min >= 40)
 
-    # 判斷是否要發送總表報價單
     is_report_time = is_lunch_time or is_tail_time or is_close_time
     
-    # 手動強制執行時，也允許發送報價單
     if event_name == 'workflow_dispatch':
         is_report_time = True
 
@@ -148,9 +128,10 @@ def check_stock():
         cost_price = float(item.get('cost_price', 0))
         notify_record = item.get('last_notify') or {} 
 
+        # 呼叫新的富果抓價功能
         price, prev_close, real_symbol = fetch_price_data(sid)
         
-        if price and prev_close: # 確保資料完整才處理
+        if price and prev_close:
             change_pct = 0
             diff_val = 0
             
@@ -165,28 +146,25 @@ def check_stock():
                 sign = "+" if pl_val > 0 else ""
                 pl_str = f"損益: {sign}{pl_val:.1f} ({sign}{pl_pct:.1f}%)"
 
-            # === 警報檢查區 (改為 9% 即將漲跌停預警) ===
+            # === 警報檢查區 (維持 9% 預警) ===
             alert_tag = ""
             
-            # 📉 即將跌停檢查 (跌幅超過 -9.0% 且未通知過)
             if change_pct <= -9.0:
                 if notify_record.get('limit_down') != today_str:
                     msg = format_alert_msg(name, real_symbol, price, "📉[即將跌停]", pct=change_pct, diff=diff_val, pl_str=pl_str)
                     send_line_push(msg)
                     notify_record['limit_down'] = today_str
                     need_save = True
-                alert_tag = " 📉[險]" # 總表顯示 "險" 代表危險
+                alert_tag = " 📉[險]"
             
-            # 🚀 即將漲停檢查 (漲幅超過 +9.0% 且未通知過)
             elif change_pct >= 9.0:
                 if notify_record.get('limit_up') != today_str:
                     msg = format_alert_msg(name, real_symbol, price, "🚀[即將漲停]", pct=change_pct, diff=diff_val, pl_str=pl_str)
                     send_line_push(msg)
                     notify_record['limit_up'] = today_str
                     need_save = True
-                alert_tag = " 🚀[衝]" # 總表顯示 "衝" 代表強勢
+                alert_tag = " 🚀[衝]"
             
-            # ✅ 到價通知 - 買
             elif buy_target and price <= buy_target:
                 if notify_record.get('buy') != today_str:
                     msg = format_alert_msg(name, real_symbol, price, "✅[買進訊號]", target=buy_target, pl_str=pl_str)
@@ -195,7 +173,6 @@ def check_stock():
                     need_save = True
                 alert_tag = " ✅[買點]"
             
-            # 💰 到價通知 - 賣
             elif sell_target and price >= sell_target:
                 if notify_record.get('sell') != today_str:
                     msg = format_alert_msg(name, real_symbol, price, "💰[獲利訊號]", target=sell_target, pl_str=pl_str)
@@ -206,7 +183,6 @@ def check_stock():
 
             item['last_notify'] = notify_record
 
-            # 收集總表資料 (只在回報時間收集)
             if is_report_time:
                 icon = "⬆️" if diff_val > 0 else "⬇️" if diff_val < 0 else "➖"
                 diff_str = f"{diff_val:+.2f} ({change_pct:+.2f}%)"
@@ -214,29 +190,22 @@ def check_stock():
                 line_msg = f"{name}: {price:.2f} {icon} {diff_str}{alert_tag}{pl_line}"
                 report_msgs.append(line_msg)
         else:
-            print(f"⚠️ 抓不到價格 (跳過): {sid}")
+            print(f"⚠️ {sid} 抓不到資料，跳過。")
 
-    # 有發送警報才更新 JSON 檔案
     if need_save:
         try:
             new_content = json.dumps(stock_list, indent=2, ensure_ascii=False)
             repo.update_file(contents.path, f"Update record {today_str}", new_content, contents.sha)
         except: pass
 
-    # === 最終發送邏輯 (智慧標題) ===
+    # === 最終發送 ===
     if report_msgs and is_report_time:
-        # 預設標題
         title = "🔎 [即時]"
-
-        # 根據時間覆蓋標題 (優先級: 時間 > 手動觸發)
-        if is_lunch_time:
-            title = "🍱 [午盤]"
-        elif is_tail_time:
-            title = "☕ [尾盤]"
-        elif is_close_time:
-            title = "🌅 [收盤]"
+        if is_lunch_time: title = "🍱 [午盤]"
+        elif is_tail_time: title = "☕ [尾盤]"
+        elif is_close_time: title = "🌅 [收盤]"
         
-        full_msg = f"{title} 行情\n" + "-"*18 + "\n" + "\n\n".join(report_msgs)
+        full_msg = f"{title} 行情 (Fugle精準版)\n" + "-"*18 + "\n" + "\n\n".join(report_msgs)
         send_line_push(full_msg)
         print(f"✅ 已發送: {title}")
 
