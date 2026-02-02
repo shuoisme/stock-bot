@@ -4,7 +4,7 @@ import json
 import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
-from github import Github, Auth # 👈 引入新的 Auth 模組
+from github import Github, Auth
 
 # --- 設定區 ---
 JSON_FILE = 'stocks.json'
@@ -48,14 +48,13 @@ def format_alert_msg(name, symbol, price, title, pct=0, diff=0, target=None, pl_
     if pl_str: msg += f"\n{pl_str}"
     return msg
 
-# --- 2. 抓價功能 (V6.3 修復上櫃代號問題) ---
+# --- 2. 抓價功能 ---
 def fetch_price_data(stock_id):
     api_token = os.environ.get("FUGLE_TOKEN")
     if not api_token:
         print("❌ 錯誤：找不到 FUGLE_TOKEN")
         return None, None, None
 
-    # 🔥 關鍵修正：先取代 .TWO，再取代 .TW，順序不能錯！
     clean_symbol = stock_id.replace(".TWO", "").replace(".TW", "")
     
     url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{clean_symbol}"
@@ -71,20 +70,19 @@ def fetch_price_data(stock_id):
             prev_close = data.get("previousClose")
             return price, prev_close, clean_symbol
         else:
-            print(f"⚠️ 富果無資料: {clean_symbol} (原始ID: {stock_id})")
+            print(f"⚠️ 富果無資料: {clean_symbol}")
             return None, None, None
     except Exception as e:
         print(f"❌ 連線失敗: {e}")
         return None, None, None
 
-# --- 3. 核心檢查邏輯 ---
+# --- 3. 核心檢查邏輯 (V6.4 時間鎖定版) ---
 def check_stock():
     gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not gh_token:
         print("❌ 找不到 GH_TOKEN")
         return
 
-    # 🔥 修正警告：使用新的 Auth 方法登入
     auth = Auth.Token(gh_token)
     g = Github(auth=auth)
 
@@ -105,11 +103,21 @@ def check_stock():
 
     need_save = False
     
+    # === 🔥 V6.4 關鍵修改：嚴格限制小時 ===
+    # 只有在 "11點" 才能發午盤，"13點" 才能發尾盤/收盤
+    # 這樣就算 14:43 被誤觸發，也會因為不符合條件而被擋下
+    
     is_lunch_time = (current_hour == 11 and current_min <= 30)
     is_tail_time = (current_hour == 13 and current_min <= 30)
-    is_close_time = (current_hour >= 13 and current_min >= 40)
+    
+    # 修正：一定要是 13 點且分鐘>=40 (如果是 14 點就會變 False)
+    is_close_time = (current_hour == 13 and current_min >= 40) 
+
     is_report_time = is_lunch_time or is_tail_time or is_close_time
-    if event_name == 'workflow_dispatch': is_report_time = True
+    
+    # 手動測試時 (workflow_dispatch) 仍然允許發送
+    if event_name == 'workflow_dispatch': 
+        is_report_time = True
 
     report_msgs = []
 
@@ -127,9 +135,7 @@ def check_stock():
         if price_raw and prev_raw:
             p_dec = Decimal(str(price_raw))
             prev_dec = Decimal(str(prev_raw))
-            
             diff_dec = p_dec - prev_dec
-            
             pct_dec = Decimal("0")
             if prev_dec > 0:
                 pct_dec = ((diff_dec / prev_dec) * 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
