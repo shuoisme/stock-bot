@@ -78,7 +78,9 @@
     "cost_price": 143.62,
     "buy_target": null,
     "sell_target": null,
-    "last_notify": {}
+    "last_notify": {
+      "limit_down": "2026-02-02"
+    }
   },
   {
     "stock_id": "4123.TWO",
