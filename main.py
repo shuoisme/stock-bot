@@ -8,7 +8,7 @@ from github import Github
 
 # --- 設定區 ---
 JSON_FILE = 'stocks.json'
-REPO_NAME = "shuoisme/stock-bot"  # ⚠️ 確認你的帳號/專案名稱
+REPO_NAME = "shuoisme/stock-bot"  # ⚠️ 請再次確認這是你的 帳號/專案名稱
 TZ_TAIWAN = timezone(timedelta(hours=8))
 
 # --- 1. LINE 推播功能 ---
@@ -45,32 +45,54 @@ def format_alert_msg(name, symbol, price, title, pct=0, diff=0, target=None, pl_
     if pl_str: msg += f"\n{pl_str}"
     return msg
 
-# --- 2. 抓價功能 ---
+# --- 2. 抓價功能 (V5.2 精準版 - 修正昨收誤差) ---
 def fetch_price_data(stock_id):
     def _get_data(ticker):
         try:
             stock = yf.Ticker(ticker)
-            hist = stock.history(period="5d")
-            if len(hist) >= 2:
-                price = hist['Close'].iloc[-1]
-                prev = hist['Close'].iloc[-2]
-                return price, prev
-            elif len(hist) == 1:
-                price = hist['Close'].iloc[-1]
-                prev = stock.fast_info.previous_close 
+            
+            # --- A. 抓取現價 (優先用 fast_info，因為最即時) ---
+            price = None
+            try:
+                price = stock.fast_info.last_price
+            except: pass
+            
+            # 如果 fast_info 失敗，改抓 K 線的最新一筆
+            if price is None:
+                hist = stock.history(period="1d")
+                if not hist.empty:
+                    price = hist['Close'].iloc[-1]
+
+            # --- B. 抓取昨收 (優先用 fast_info，這是官方參考價) ---
+            prev = None
+            try:
+                prev = stock.fast_info.previous_close
+            except: pass
+
+            # 如果 fast_info 失敗，才改用 K 線的前一天收盤 (備案)
+            if prev is None:
+                hist_5d = stock.history(period="5d")
+                if len(hist_5d) >= 2:
+                    prev = hist_5d['Close'].iloc[-2]
+
+            # 只有當兩個價格都抓到，才回傳
+            if price and prev:
                 return price, prev
             else:
                 return None, None
         except:
             return None, None
 
+    # 嘗試不同的後綴 (.TW 或 .TWO)
     if stock_id.endswith('.TW') or stock_id.endswith('.TWO'):
         p, prev = _get_data(stock_id)
         if p: return p, prev, stock_id
 
+    # 嘗試加上 .TW (上市)
     p, prev = _get_data(f"{stock_id}.TW")
     if p: return p, prev, f"{stock_id}.TW"
 
+    # 嘗試加上 .TWO (上櫃)
     p, prev = _get_data(f"{stock_id}.TWO")
     if p: return p, prev, f"{stock_id}.TWO"
 
@@ -102,17 +124,16 @@ def check_stock():
 
     need_save = False
     
-    # === 關鍵修改：定義時間區段 ===
+    # === 定義時間區段 ===
     # 只要在這個時間範圍內，不管是不是手動按的，都視為該時段的報告
     is_lunch_time = (current_hour == 11 and current_min <= 30)
     is_tail_time = (current_hour == 13 and current_min <= 30)
     is_close_time = (current_hour >= 13 and current_min >= 40) # 13:40 以後都算收盤
 
-    # 判斷是否要發送報價單
-    # 1. 如果符合上述時間 -> 發送
-    # 2. 如果是手動按按鈕 (workflow_dispatch) -> 強制發送
+    # 判斷是否要發送總表報價單
     is_report_time = is_lunch_time or is_tail_time or is_close_time
     
+    # 手動強制執行時，也允許發送報價單
     if event_name == 'workflow_dispatch':
         is_report_time = True
 
@@ -129,11 +150,12 @@ def check_stock():
 
         price, prev_close, real_symbol = fetch_price_data(sid)
         
-        if price:
+        if price and prev_close: # 確保資料完整才處理
             change_pct = 0
             diff_val = 0
-            if prev_close and prev_close > 0:
-                diff_val = price - prev_close
+            
+            diff_val = price - prev_close
+            if prev_close > 0:
                 change_pct = (diff_val / prev_close) * 100
             
             pl_str = ""
@@ -143,22 +165,28 @@ def check_stock():
                 sign = "+" if pl_val > 0 else ""
                 pl_str = f"損益: {sign}{pl_val:.1f} ({sign}{pl_pct:.1f}%)"
 
-            # 警報檢查
+            # === 警報檢查區 (改為 9% 即將漲跌停預警) ===
             alert_tag = ""
-            if change_pct <= -9.5:
+            
+            # 📉 即將跌停檢查 (跌幅超過 -9.0% 且未通知過)
+            if change_pct <= -9.0:
                 if notify_record.get('limit_down') != today_str:
-                    msg = format_alert_msg(name, real_symbol, price, "🤮[跌停通知]", pct=change_pct, diff=diff_val, pl_str=pl_str)
+                    msg = format_alert_msg(name, real_symbol, price, "📉[即將跌停]", pct=change_pct, diff=diff_val, pl_str=pl_str)
                     send_line_push(msg)
                     notify_record['limit_down'] = today_str
                     need_save = True
-                alert_tag = " 🤮[跌停]"
-            elif change_pct >= 9.5:
+                alert_tag = " 📉[險]" # 總表顯示 "險" 代表危險
+            
+            # 🚀 即將漲停檢查 (漲幅超過 +9.0% 且未通知過)
+            elif change_pct >= 9.0:
                 if notify_record.get('limit_up') != today_str:
-                    msg = format_alert_msg(name, real_symbol, price, "🔥[漲停通知]", pct=change_pct, diff=diff_val, pl_str=pl_str)
+                    msg = format_alert_msg(name, real_symbol, price, "🚀[即將漲停]", pct=change_pct, diff=diff_val, pl_str=pl_str)
                     send_line_push(msg)
                     notify_record['limit_up'] = today_str
                     need_save = True
-                alert_tag = " 🔥[漲停]"
+                alert_tag = " 🚀[衝]" # 總表顯示 "衝" 代表強勢
+            
+            # ✅ 到價通知 - 買
             elif buy_target and price <= buy_target:
                 if notify_record.get('buy') != today_str:
                     msg = format_alert_msg(name, real_symbol, price, "✅[買進訊號]", target=buy_target, pl_str=pl_str)
@@ -166,6 +194,8 @@ def check_stock():
                     notify_record['buy'] = today_str
                     need_save = True
                 alert_tag = " ✅[買點]"
+            
+            # 💰 到價通知 - 賣
             elif sell_target and price >= sell_target:
                 if notify_record.get('sell') != today_str:
                     msg = format_alert_msg(name, real_symbol, price, "💰[獲利訊號]", target=sell_target, pl_str=pl_str)
@@ -176,13 +206,17 @@ def check_stock():
 
             item['last_notify'] = notify_record
 
+            # 收集總表資料 (只在回報時間收集)
             if is_report_time:
                 icon = "⬆️" if diff_val > 0 else "⬇️" if diff_val < 0 else "➖"
                 diff_str = f"{diff_val:+.2f} ({change_pct:+.2f}%)"
                 pl_line = f"\n   └ {pl_str}" if pl_str else ""
                 line_msg = f"{name}: {price:.2f} {icon} {diff_str}{alert_tag}{pl_line}"
                 report_msgs.append(line_msg)
+        else:
+            print(f"⚠️ 抓不到價格 (跳過): {sid}")
 
+    # 有發送警報才更新 JSON 檔案
     if need_save:
         try:
             new_content = json.dumps(stock_list, indent=2, ensure_ascii=False)
