@@ -8,7 +8,7 @@ from github import Github
 
 # --- 設定區 ---
 JSON_FILE = 'stocks.json'
-REPO_NAME = "shuoisme/stock-bot"  # ⚠️ 請確認這跟你的 GitHub 帳號/專案名稱 一模一樣！
+REPO_NAME = "shuoisme/stock-bot"  # ⚠️ 確認你的帳號/專案名稱
 TZ_TAIWAN = timezone(timedelta(hours=8))
 
 # --- 1. LINE 推播功能 ---
@@ -31,8 +31,7 @@ def send_line_push(msg):
     }
     
     try:
-        response = requests.post(url, headers=headers, json=payload)
-        print(f"📡 LINE 回應代碼: {response.status_code}") # 印出回應狀態
+        requests.post(url, headers=headers, json=payload)
     except Exception as e:
         print(f"❌ [錯誤] 推播失敗: {e}")
 
@@ -79,50 +78,43 @@ def fetch_price_data(stock_id):
 
 # --- 3. 核心檢查邏輯 ---
 def check_stock():
-    print("🚀 機器人啟動中...")
-    
-    gh_token = os.environ.get("GH_TOKEN")
+    gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not gh_token:
-        print("❌ [致命錯誤] 找不到 GH_TOKEN，請檢查 Secrets 設定！")
+        print("❌ 找不到 Token")
         return
 
     g = Github(gh_token)
     try:
-        # 嘗試讀取檔案
-        print(f"📂 正在讀取倉庫: {REPO_NAME} 的 {JSON_FILE}...")
         repo = g.get_repo(REPO_NAME)
         contents = repo.get_contents(JSON_FILE)
         stock_list = json.loads(contents.decoded_content.decode())
-        print(f"✅ 成功讀取股票清單，共 {len(stock_list)} 支股票")
     except Exception as e:
-        print(f"❌ [讀檔失敗] 原因: {e}")
-        print("💡 提示: 請檢查 REPO_NAME 是否正確？GH_TOKEN 是否有權限？")
+        print(f"❌ 讀檔失敗: {e}")
         return
 
     now = datetime.now(TZ_TAIWAN)
     today_str = now.strftime('%Y-%m-%d')
     current_hour = now.hour
     current_min = now.minute
-    
-    # 取得觸發事件
     event_name = os.environ.get('GITHUB_EVENT_NAME')
-    print(f"🔍 目前時間: {current_hour}:{current_min}, 觸發事件: {event_name}")
+
+    print(f"🔍 目前時間: {current_hour}:{current_min}")
 
     need_save = False
-    is_report_time = False
-
-    # 時間判斷
-    if (current_hour == 11 and current_min <= 20) or \
-       (current_hour == 13 and current_min <= 20) or \
-       (current_hour == 13 and current_min >= 45):
-        is_report_time = True
-
-    # 手動觸發判斷
-    if event_name == 'workflow_dispatch':
-        print("👉 偵測到【手動按鈕】觸發，強制開啟報價模式！")
-        is_report_time = True
     
-    print(f"📊 報價模式開啟狀態: {is_report_time}")
+    # === 關鍵修改：定義時間區段 ===
+    # 只要在這個時間範圍內，不管是不是手動按的，都視為該時段的報告
+    is_lunch_time = (current_hour == 11 and current_min <= 30)
+    is_tail_time = (current_hour == 13 and current_min <= 30)
+    is_close_time = (current_hour >= 13 and current_min >= 40) # 13:40 以後都算收盤
+
+    # 判斷是否要發送報價單
+    # 1. 如果符合上述時間 -> 發送
+    # 2. 如果是手動按按鈕 (workflow_dispatch) -> 強制發送
+    is_report_time = is_lunch_time or is_tail_time or is_close_time
+    
+    if event_name == 'workflow_dispatch':
+        is_report_time = True
 
     report_msgs = []
 
@@ -184,34 +176,35 @@ def check_stock():
 
             item['last_notify'] = notify_record
 
-            # 收集報價
             if is_report_time:
                 icon = "⬆️" if diff_val > 0 else "⬇️" if diff_val < 0 else "➖"
                 diff_str = f"{diff_val:+.2f} ({change_pct:+.2f}%)"
                 pl_line = f"\n   └ {pl_str}" if pl_str else ""
                 line_msg = f"{name}: {price:.2f} {icon} {diff_str}{alert_tag}{pl_line}"
                 report_msgs.append(line_msg)
-        else:
-            print(f"⚠️ 抓不到價格: {sid}")
 
     if need_save:
         try:
             new_content = json.dumps(stock_list, indent=2, ensure_ascii=False)
             repo.update_file(contents.path, f"Update record {today_str}", new_content, contents.sha)
-            print("💾 紀錄更新成功")
-        except Exception as e:
-            print(f"❌ 存檔失敗: {e}")
+        except: pass
 
-    # 發送訊息
+    # === 最終發送邏輯 (智慧標題) ===
     if report_msgs and is_report_time:
-        print("📨 準備發送 LINE 訊息...")
-        title = "🔎 [即時]" if event_name == 'workflow_dispatch' else \
-                ("🍱 [午盤]" if current_hour == 11 else ("☕ [尾盤]" if current_hour == 13 and current_min < 30 else "🌅 [收盤]"))
+        # 預設標題
+        title = "🔎 [即時]"
+
+        # 根據時間覆蓋標題 (優先級: 時間 > 手動觸發)
+        if is_lunch_time:
+            title = "🍱 [午盤]"
+        elif is_tail_time:
+            title = "☕ [尾盤]"
+        elif is_close_time:
+            title = "🌅 [收盤]"
+        
         full_msg = f"{title} 行情\n" + "-"*18 + "\n" + "\n\n".join(report_msgs)
         send_line_push(full_msg)
-        print("✅ LINE 訊息發送指令已執行")
-    else:
-        print(f"🔕 本次不發送訊息 (原因: report_time={is_report_time}, msgs數={len(report_msgs)})")
+        print(f"✅ 已發送: {title}")
 
 if __name__ == "__main__":
     check_stock()
