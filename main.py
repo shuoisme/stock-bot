@@ -1,7 +1,7 @@
 import requests
 import os
 import json
-import time
+import time  # 👈 這次我們會用到這個
 from datetime import datetime, timedelta, timezone
 from github import Github
 
@@ -37,14 +37,13 @@ def send_line_push(msg):
 # 格式化訊息
 def format_alert_msg(name, symbol, price, title, pct=0, diff=0, target=None, pl_str=""):
     now_str = datetime.now(TZ_TAIWAN).strftime('%H:%M')
-    # 富果不需要 .TW，但顯示時我們還是可以保留原本的 ID 讓你看習慣
     change_str = f"{diff:+.2f} ({pct:+.2f}%)" if price > 0 else ""
     msg = f"{title} {name} ({symbol})\n🕒 {now_str}\n💰 {price:.2f} {change_str}"
     if target: msg += f"\n🎯 目標: {target}"
     if pl_str: msg += f"\n{pl_str}"
     return msg
 
-# --- 2. 抓價功能 (V6.0 富果 Fugle 專業版) ---
+# --- 2. 抓價功能 (V6.1 限速防擋版) ---
 def fetch_price_data(stock_id):
     # 取得 GitHub Secrets 裡的 Token
     api_token = os.environ.get("FUGLE_TOKEN")
@@ -53,27 +52,30 @@ def fetch_price_data(stock_id):
         print("❌ 錯誤：找不到 FUGLE_TOKEN，請去 GitHub Settings 設定！")
         return None, None, None
 
-    # 1. 處理代碼：富果不吃 ".TW"
+    # 1. 處理代碼：富果只吃 "2330"，不吃 "2330.TW"
     clean_symbol = stock_id.replace(".TW", "").replace(".TWO", "")
 
-    # 2. 呼叫富果 API (Intraday Quote)
+    # 2. 呼叫富果 API
     url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{clean_symbol}"
     headers = {
         "X-API-KEY": api_token
     }
 
     try:
+        # 🔥 關鍵修改：每次抓之前，先發呆 0.5 秒，避免太快被富果踢掉
+        time.sleep(0.5) 
+        
         res = requests.get(url, headers=headers)
         data = res.json()
         
         # 檢查是否有抓到資料
         if "lastTrade" in data and "price" in data["lastTrade"]:
             price = data["lastTrade"]["price"]
-            prev_close = data.get("previousClose") # 富果直接給官方昨收，絕對準確
-            
+            prev_close = data.get("previousClose")
             return price, prev_close, clean_symbol
         else:
-            print(f"⚠️ 富果回傳無資料: {stock_id} (可能是下市或代號錯誤)")
+            # 增加除錯訊息，讓你知道是哪支沒抓到
+            print(f"⚠️ 富果無資料: {clean_symbol} (回應: {data})")
             return None, None, None
 
     except Exception as e:
@@ -107,7 +109,7 @@ def check_stock():
 
     need_save = False
     
-    # === 時間區段 (與之前相同) ===
+    # === 時間區段 ===
     is_lunch_time = (current_hour == 11 and current_min <= 30)
     is_tail_time = (current_hour == 13 and current_min <= 30)
     is_close_time = (current_hour >= 13 and current_min >= 40)
@@ -128,7 +130,7 @@ def check_stock():
         cost_price = float(item.get('cost_price', 0))
         notify_record = item.get('last_notify') or {} 
 
-        # 呼叫新的富果抓價功能
+        # 呼叫抓價
         price, prev_close, real_symbol = fetch_price_data(sid)
         
         if price and prev_close:
@@ -205,11 +207,9 @@ def check_stock():
         elif is_tail_time: title = "☕ [尾盤]"
         elif is_close_time: title = "🌅 [收盤]"
         
-        full_msg = f"{title} 行情（精準）\n" + "-"*18 + "\n" + "\n\n".join(report_msgs)
+        full_msg = f"{title} 行情 (Fugle精準版)\n" + "-"*18 + "\n" + "\n\n".join(report_msgs)
         send_line_push(full_msg)
         print(f"✅ 已發送: {title}")
 
 if __name__ == "__main__":
     check_stock()
-
-
