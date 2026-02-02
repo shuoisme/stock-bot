@@ -53,7 +53,7 @@ def fetch_price_data(stock_id):
         print("❌ 錯誤：找不到 FUGLE_TOKEN，請去 GitHub Settings 設定！")
         return None, None, None
 
-    # 1. 處理代碼：富果只吃 "2330"，不吃 "2330.TW"
+    # 1. 處理代碼：富果不吃 ".TW"
     clean_symbol = stock_id.replace(".TW", "").replace(".TWO", "")
 
     # 2. 呼叫富果 API (Intraday Quote)
@@ -205,9 +205,10 @@ def check_stock():
         elif is_tail_time: title = "☕ [尾盤]"
         elif is_close_time: title = "🌅 [收盤]"
         
-        full_msg = f"{title} 行情 (Fugle精準版)\n" + "-"*18 + "\n" + "\n\n".join(report_msgs)
+        full_msg = f"{title} 行情 \n" + "-"*18 + "\n" + "\n\n".join(report_msgs)
         send_line_push(full_msg)
         print(f"✅ 已發送: {title}")
 
 if __name__ == "__main__":
     check_stock()
+
