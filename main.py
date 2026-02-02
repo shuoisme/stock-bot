@@ -205,10 +205,11 @@ def check_stock():
         elif is_tail_time: title = "☕ [尾盤]"
         elif is_close_time: title = "🌅 [收盤]"
         
-        full_msg = f"{title} 行情 \n" + "-"*18 + "\n" + "\n\n".join(report_msgs)
+        full_msg = f"{title} 行情（精準）\n" + "-"*18 + "\n" + "\n\n".join(report_msgs)
         send_line_push(full_msg)
         print(f"✅ 已發送: {title}")
 
 if __name__ == "__main__":
     check_stock()
+
 
