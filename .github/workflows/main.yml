@@ -37,9 +37,10 @@ jobs:
     - name: Run stock bot
       # 👇 關鍵 2：這裡就是「遞鑰匙」的動作，缺一不可！
       env:
-        LINE_ACCESS_TOKEN: ${{ secrets.LINE_ACCESS_TOKEN }}
-        LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
-        # 👇 這裡很重要！我們把 GitHub 內建的鑰匙 (GITHUB_TOKEN) 交給機器人
-        # 這樣你就不用擔心有沒有設定 GH_TOKEN 了，內建的最穩！
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 👇 這裡就是關鍵！要把鑰匙傳進去
+          LINE_ACCESS_TOKEN: ${{ secrets.LINE_ACCESS_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+          FUGLE_TOKEN: ${{ secrets.FUGLE_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }} # 這是 GitHub 內建的，或者是你自己設的
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # 備用
       run: python main.py
