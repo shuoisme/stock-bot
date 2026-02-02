@@ -1,8 +1,9 @@
 import requests
 import os
 import json
-import time  # 👈 這次我們會用到這個
+import time
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, ROUND_HALF_UP  # 👈 引入金融計算模組
 from github import Github
 
 # --- 設定區 ---
@@ -37,53 +38,45 @@ def send_line_push(msg):
 # 格式化訊息
 def format_alert_msg(name, symbol, price, title, pct=0, diff=0, target=None, pl_str=""):
     now_str = datetime.now(TZ_TAIWAN).strftime('%H:%M')
-    change_str = f"{diff:+.2f} ({pct:+.2f}%)" if price > 0 else ""
-    msg = f"{title} {name} ({symbol})\n🕒 {now_str}\n💰 {price:.2f} {change_str}"
+    # 這裡的 pct 和 diff 已經是 Decimal 物件，需要轉成 float 才能用 :.2f 格式化，或是直接轉字串
+    price_val = float(price)
+    diff_val = float(diff)
+    pct_val = float(pct)
+
+    change_str = f"{diff_val:+.2f} ({pct_val:+.2f}%)" if price_val > 0 else ""
+    msg = f"{title} {name} ({symbol})\n🕒 {now_str}\n💰 {price_val:.2f} {change_str}"
     if target: msg += f"\n🎯 目標: {target}"
     if pl_str: msg += f"\n{pl_str}"
     return msg
 
-# --- 2. 抓價功能 (V6.1 限速防擋版) ---
+# --- 2. 抓價功能 (V6.1 限速版) ---
 def fetch_price_data(stock_id):
-    # 取得 GitHub Secrets 裡的 Token
     api_token = os.environ.get("FUGLE_TOKEN")
-    
     if not api_token:
-        print("❌ 錯誤：找不到 FUGLE_TOKEN，請去 GitHub Settings 設定！")
+        print("❌ 錯誤：找不到 FUGLE_TOKEN")
         return None, None, None
 
-    # 1. 處理代碼：富果只吃 "2330"，不吃 "2330.TW"
     clean_symbol = stock_id.replace(".TW", "").replace(".TWO", "")
-
-    # 2. 呼叫富果 API
     url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{clean_symbol}"
-    headers = {
-        "X-API-KEY": api_token
-    }
+    headers = {"X-API-KEY": api_token}
 
     try:
-        # 🔥 關鍵修改：每次抓之前，先發呆 0.5 秒，避免太快被富果踢掉
         time.sleep(0.5) 
-        
         res = requests.get(url, headers=headers)
         data = res.json()
         
-        # 檢查是否有抓到資料
         if "lastTrade" in data and "price" in data["lastTrade"]:
             price = data["lastTrade"]["price"]
             prev_close = data.get("previousClose")
             return price, prev_close, clean_symbol
         else:
-            # 增加除錯訊息，讓你知道是哪支沒抓到
-            print(f"⚠️ 富果無資料: {clean_symbol} (回應: {data})")
+            print(f"⚠️ 富果無資料: {clean_symbol}")
             return None, None, None
-
     except Exception as e:
-        print(f"❌ 富果連線失敗 {stock_id}: {e}")
+        print(f"❌ 連線失敗: {e}")
         return None, None, None
 
-
-# --- 3. 核心檢查邏輯 ---
+# --- 3. 核心檢查邏輯 (V6.2 精算修正) ---
 def check_stock():
     gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not gh_token:
@@ -104,20 +97,15 @@ def check_stock():
     current_hour = now.hour
     current_min = now.minute
     event_name = os.environ.get('GITHUB_EVENT_NAME')
-
     print(f"🔍 目前時間: {current_hour}:{current_min}")
 
     need_save = False
     
-    # === 時間區段 ===
     is_lunch_time = (current_hour == 11 and current_min <= 30)
     is_tail_time = (current_hour == 13 and current_min <= 30)
     is_close_time = (current_hour >= 13 and current_min >= 40)
-
     is_report_time = is_lunch_time or is_tail_time or is_close_time
-    
-    if event_name == 'workflow_dispatch':
-        is_report_time = True
+    if event_name == 'workflow_dispatch': is_report_time = True
 
     report_msgs = []
 
@@ -130,27 +118,40 @@ def check_stock():
         cost_price = float(item.get('cost_price', 0))
         notify_record = item.get('last_notify') or {} 
 
-        # 呼叫抓價
-        price, prev_close, real_symbol = fetch_price_data(sid)
+        price_raw, prev_raw, real_symbol = fetch_price_data(sid)
         
-        if price and prev_close:
-            change_pct = 0
-            diff_val = 0
+        if price_raw and prev_raw:
+            # 🔥 V6.2 關鍵修正：改用 Decimal 進行高精度計算
+            p_dec = Decimal(str(price_raw))
+            prev_dec = Decimal(str(prev_raw))
             
-            diff_val = price - prev_close
-            if prev_close > 0:
-                change_pct = (diff_val / prev_close) * 100
+            # 1. 計算價差 (Diff)
+            diff_dec = p_dec - prev_dec
             
+            # 2. 計算漲跌幅 (Percent)
+            # 公式：(價差 / 昨收) * 100
+            # 使用 quantize('0.00') 強制取小數點後兩位，並使用 ROUND_HALF_UP (標準四捨五入)
+            pct_dec = Decimal("0")
+            if prev_dec > 0:
+                pct_dec = ((diff_dec / prev_dec) * 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            
+            # 轉回 float 方便後續比較與顯示
+            price = float(p_dec)
+            diff_val = float(diff_dec)
+            change_pct = float(pct_dec)
+
+            # 損益計算 (也順便精確化)
             pl_str = ""
             if cost_price > 0:
-                pl_val = price - cost_price
-                pl_pct = (pl_val / cost_price) * 100
-                sign = "+" if pl_val > 0 else ""
-                pl_str = f"損益: {sign}{pl_val:.1f} ({sign}{pl_pct:.1f}%)"
+                cost_dec = Decimal(str(cost_price))
+                pl_val_dec = p_dec - cost_dec
+                pl_pct_dec = ((pl_val_dec / cost_dec) * 100).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+                
+                sign = "+" if pl_val_dec > 0 else ""
+                pl_str = f"損益: {sign}{pl_val_dec} ({sign}{pl_pct_dec}%)"
 
-            # === 警報檢查區 (維持 9% 預警) ===
+            # === 警報檢查區 ===
             alert_tag = ""
-            
             if change_pct <= -9.0:
                 if notify_record.get('limit_down') != today_str:
                     msg = format_alert_msg(name, real_symbol, price, "📉[即將跌停]", pct=change_pct, diff=diff_val, pl_str=pl_str)
@@ -158,7 +159,6 @@ def check_stock():
                     notify_record['limit_down'] = today_str
                     need_save = True
                 alert_tag = " 📉[險]"
-            
             elif change_pct >= 9.0:
                 if notify_record.get('limit_up') != today_str:
                     msg = format_alert_msg(name, real_symbol, price, "🚀[即將漲停]", pct=change_pct, diff=diff_val, pl_str=pl_str)
@@ -166,7 +166,6 @@ def check_stock():
                     notify_record['limit_up'] = today_str
                     need_save = True
                 alert_tag = " 🚀[衝]"
-            
             elif buy_target and price <= buy_target:
                 if notify_record.get('buy') != today_str:
                     msg = format_alert_msg(name, real_symbol, price, "✅[買進訊號]", target=buy_target, pl_str=pl_str)
@@ -174,7 +173,6 @@ def check_stock():
                     notify_record['buy'] = today_str
                     need_save = True
                 alert_tag = " ✅[買點]"
-            
             elif sell_target and price >= sell_target:
                 if notify_record.get('sell') != today_str:
                     msg = format_alert_msg(name, real_symbol, price, "💰[獲利訊號]", target=sell_target, pl_str=pl_str)
@@ -192,7 +190,7 @@ def check_stock():
                 line_msg = f"{name}: {price:.2f} {icon} {diff_str}{alert_tag}{pl_line}"
                 report_msgs.append(line_msg)
         else:
-            print(f"⚠️ {sid} 抓不到資料，跳過。")
+            print(f"⚠️ {sid} 抓不到資料")
 
     if need_save:
         try:
@@ -200,14 +198,13 @@ def check_stock():
             repo.update_file(contents.path, f"Update record {today_str}", new_content, contents.sha)
         except: pass
 
-    # === 最終發送 ===
     if report_msgs and is_report_time:
         title = "🔎 [即時]"
         if is_lunch_time: title = "🍱 [午盤]"
         elif is_tail_time: title = "☕ [尾盤]"
         elif is_close_time: title = "🌅 [收盤]"
         
-        full_msg = f"{title} 行情 (Fugle精準版)\n" + "-"*18 + "\n" + "\n\n".join(report_msgs)
+        full_msg = f"{title} 行情 (精準)\n" + "-"*18 + "\n" + "\n\n".join(report_msgs)
         send_line_push(full_msg)
         print(f"✅ 已發送: {title}")
 
