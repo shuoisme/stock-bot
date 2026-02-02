@@ -3,12 +3,12 @@ import os
 import json
 import time
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal, ROUND_HALF_UP  # 👈 引入金融計算模組
-from github import Github
+from decimal import Decimal, ROUND_HALF_UP
+from github import Github, Auth # 👈 引入新的 Auth 模組
 
 # --- 設定區 ---
 JSON_FILE = 'stocks.json'
-REPO_NAME = "shuoisme/stock-bot"  # ⚠️ 確認你的帳號/專案名稱
+REPO_NAME = "shuoisme/stock-bot"
 TZ_TAIWAN = timezone(timedelta(hours=8))
 
 # --- 1. LINE 推播功能 ---
@@ -38,7 +38,6 @@ def send_line_push(msg):
 # 格式化訊息
 def format_alert_msg(name, symbol, price, title, pct=0, diff=0, target=None, pl_str=""):
     now_str = datetime.now(TZ_TAIWAN).strftime('%H:%M')
-    # 這裡的 pct 和 diff 已經是 Decimal 物件，需要轉成 float 才能用 :.2f 格式化，或是直接轉字串
     price_val = float(price)
     diff_val = float(diff)
     pct_val = float(pct)
@@ -49,14 +48,16 @@ def format_alert_msg(name, symbol, price, title, pct=0, diff=0, target=None, pl_
     if pl_str: msg += f"\n{pl_str}"
     return msg
 
-# --- 2. 抓價功能 (V6.1 限速版) ---
+# --- 2. 抓價功能 (V6.3 修復上櫃代號問題) ---
 def fetch_price_data(stock_id):
     api_token = os.environ.get("FUGLE_TOKEN")
     if not api_token:
         print("❌ 錯誤：找不到 FUGLE_TOKEN")
         return None, None, None
 
-    clean_symbol = stock_id.replace(".TW", "").replace(".TWO", "")
+    # 🔥 關鍵修正：先取代 .TWO，再取代 .TW，順序不能錯！
+    clean_symbol = stock_id.replace(".TWO", "").replace(".TW", "")
+    
     url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{clean_symbol}"
     headers = {"X-API-KEY": api_token}
 
@@ -70,20 +71,23 @@ def fetch_price_data(stock_id):
             prev_close = data.get("previousClose")
             return price, prev_close, clean_symbol
         else:
-            print(f"⚠️ 富果無資料: {clean_symbol}")
+            print(f"⚠️ 富果無資料: {clean_symbol} (原始ID: {stock_id})")
             return None, None, None
     except Exception as e:
         print(f"❌ 連線失敗: {e}")
         return None, None, None
 
-# --- 3. 核心檢查邏輯 (V6.2 精算修正) ---
+# --- 3. 核心檢查邏輯 ---
 def check_stock():
     gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not gh_token:
         print("❌ 找不到 GH_TOKEN")
         return
 
-    g = Github(gh_token)
+    # 🔥 修正警告：使用新的 Auth 方法登入
+    auth = Auth.Token(gh_token)
+    g = Github(auth=auth)
+
     try:
         repo = g.get_repo(REPO_NAME)
         contents = repo.get_contents(JSON_FILE)
@@ -121,32 +125,24 @@ def check_stock():
         price_raw, prev_raw, real_symbol = fetch_price_data(sid)
         
         if price_raw and prev_raw:
-            # 🔥 V6.2 關鍵修正：改用 Decimal 進行高精度計算
             p_dec = Decimal(str(price_raw))
             prev_dec = Decimal(str(prev_raw))
             
-            # 1. 計算價差 (Diff)
             diff_dec = p_dec - prev_dec
             
-            # 2. 計算漲跌幅 (Percent)
-            # 公式：(價差 / 昨收) * 100
-            # 使用 quantize('0.00') 強制取小數點後兩位，並使用 ROUND_HALF_UP (標準四捨五入)
             pct_dec = Decimal("0")
             if prev_dec > 0:
                 pct_dec = ((diff_dec / prev_dec) * 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             
-            # 轉回 float 方便後續比較與顯示
             price = float(p_dec)
             diff_val = float(diff_dec)
             change_pct = float(pct_dec)
 
-            # 損益計算 (也順便精確化)
             pl_str = ""
             if cost_price > 0:
                 cost_dec = Decimal(str(cost_price))
                 pl_val_dec = p_dec - cost_dec
                 pl_pct_dec = ((pl_val_dec / cost_dec) * 100).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
-                
                 sign = "+" if pl_val_dec > 0 else ""
                 pl_str = f"損益: {sign}{pl_val_dec} ({sign}{pl_pct_dec}%)"
 
@@ -204,7 +200,7 @@ def check_stock():
         elif is_tail_time: title = "☕ [尾盤]"
         elif is_close_time: title = "🌅 [收盤]"
         
-        full_msg = f"{title} 行情 (精準)\n" + "-"*18 + "\n" + "\n\n".join(report_msgs)
+        full_msg = f"{title} 行情 (金融精算版)\n" + "-"*18 + "\n" + "\n\n".join(report_msgs)
         send_line_push(full_msg)
         print(f"✅ 已發送: {title}")
 
