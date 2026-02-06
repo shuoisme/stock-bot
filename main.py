@@ -48,15 +48,14 @@ def format_alert_msg(name, symbol, price, title, pct=0, diff=0, target=None, pl_
     if pl_str: msg += f"\n{pl_str}"
     return msg
 
-# --- 2. 抓價功能 ---
-def fetch_price_data(stock_id):
+# --- 2. 抓價功能 (V6.5 休市自動過濾版) ---
+def fetch_price_data(stock_id, today_str):
     api_token = os.environ.get("FUGLE_TOKEN")
     if not api_token:
         print("❌ 錯誤：找不到 FUGLE_TOKEN")
         return None, None, None
 
     clean_symbol = stock_id.replace(".TWO", "").replace(".TW", "")
-    
     url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{clean_symbol}"
     headers = {"X-API-KEY": api_token}
 
@@ -65,6 +64,10 @@ def fetch_price_data(stock_id):
         res = requests.get(url, headers=headers)
         data = res.json()
         
+        # 🔥 關鍵判斷：如果資料日期 != 今天日期，代表休市，回傳 "HOLIDAY"
+        if "date" in data and data["date"] != today_str:
+            return "HOLIDAY", None, clean_symbol
+
         if "lastTrade" in data and "price" in data["lastTrade"]:
             price = data["lastTrade"]["price"]
             prev_close = data.get("previousClose")
@@ -76,7 +79,7 @@ def fetch_price_data(stock_id):
         print(f"❌ 連線失敗: {e}")
         return None, None, None
 
-# --- 3. 核心檢查邏輯 (V6.4 時間鎖定版) ---
+# --- 3. 核心檢查邏輯 ---
 def check_stock():
     gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not gh_token:
@@ -103,23 +106,17 @@ def check_stock():
 
     need_save = False
     
-    # === 🔥 V6.4 關鍵修改：嚴格限制小時 ===
-    # 只有在 "11點" 才能發午盤，"13點" 才能發尾盤/收盤
-    # 這樣就算 14:43 被誤觸發，也會因為不符合條件而被擋下
-    
+    # 時間邏輯 (嚴格限制)
     is_lunch_time = (current_hour == 11 and current_min <= 30)
     is_tail_time = (current_hour == 13 and current_min <= 30)
+    is_close_time = (current_hour == 13 and current_min >= 40)
     
-    # 修正：一定要是 13 點且分鐘>=40 (如果是 14 點就會變 False)
-    is_close_time = (current_hour == 13 and current_min >= 40) 
-
     is_report_time = is_lunch_time or is_tail_time or is_close_time
-    
-    # 手動測試時 (workflow_dispatch) 仍然允許發送
     if event_name == 'workflow_dispatch': 
         is_report_time = True
 
     report_msgs = []
+    market_is_open = False # 標記今天是否開市
 
     for item in stock_list:
         sid = item['stock_id']
@@ -130,9 +127,16 @@ def check_stock():
         cost_price = float(item.get('cost_price', 0))
         notify_record = item.get('last_notify') or {} 
 
-        price_raw, prev_raw, real_symbol = fetch_price_data(sid)
+        # 傳入 today_str 進行休市檢查
+        price_raw, prev_raw, real_symbol = fetch_price_data(sid, today_str)
         
+        # 🏖️ 如果發現休市訊號
+        if price_raw == "HOLIDAY":
+            print(f"🏖️ 休市中 (資料日期非今日): {sid}")
+            continue # 跳過這支股票
+            
         if price_raw and prev_raw:
+            market_is_open = True # 只要有一支股票抓到今天的資料，就代表開市
             p_dec = Decimal(str(price_raw))
             prev_dec = Decimal(str(prev_raw))
             diff_dec = p_dec - prev_dec
@@ -153,39 +157,41 @@ def check_stock():
                 pl_str = f"損益: {sign}{pl_val_dec} ({sign}{pl_pct_dec}%)"
 
             # === 警報檢查區 ===
-            alert_tag = ""
             if change_pct <= -9.0:
                 if notify_record.get('limit_down') != today_str:
                     msg = format_alert_msg(name, real_symbol, price, "📉[即將跌停]", pct=change_pct, diff=diff_val, pl_str=pl_str)
                     send_line_push(msg)
                     notify_record['limit_down'] = today_str
                     need_save = True
-                alert_tag = " 📉[險]"
             elif change_pct >= 9.0:
                 if notify_record.get('limit_up') != today_str:
                     msg = format_alert_msg(name, real_symbol, price, "🚀[即將漲停]", pct=change_pct, diff=diff_val, pl_str=pl_str)
                     send_line_push(msg)
                     notify_record['limit_up'] = today_str
                     need_save = True
-                alert_tag = " 🚀[衝]"
             elif buy_target and price <= buy_target:
                 if notify_record.get('buy') != today_str:
                     msg = format_alert_msg(name, real_symbol, price, "✅[買進訊號]", target=buy_target, pl_str=pl_str)
                     send_line_push(msg)
                     notify_record['buy'] = today_str
                     need_save = True
-                alert_tag = " ✅[買點]"
             elif sell_target and price >= sell_target:
                 if notify_record.get('sell') != today_str:
                     msg = format_alert_msg(name, real_symbol, price, "💰[獲利訊號]", target=sell_target, pl_str=pl_str)
                     send_line_push(msg)
                     notify_record['sell'] = today_str
                     need_save = True
-                alert_tag = " 💰[賣點]"
 
             item['last_notify'] = notify_record
 
             if is_report_time:
+                # 準備總表
+                alert_tag = ""
+                if change_pct <= -9.0: alert_tag = " 📉[險]"
+                elif change_pct >= 9.0: alert_tag = " 🚀[衝]"
+                elif buy_target and price <= buy_target: alert_tag = " ✅[買點]"
+                elif sell_target and price >= sell_target: alert_tag = " 💰[賣點]"
+
                 icon = "⬆️" if diff_val > 0 else "⬇️" if diff_val < 0 else "➖"
                 diff_str = f"{diff_val:+.2f} ({change_pct:+.2f}%)"
                 pl_line = f"\n   └ {pl_str}" if pl_str else ""
@@ -200,15 +206,18 @@ def check_stock():
             repo.update_file(contents.path, f"Update record {today_str}", new_content, contents.sha)
         except: pass
 
-    if report_msgs and is_report_time:
+    # 🔥 最終檢查：只有在「市場開市 (market_is_open)」的情況下才發總表
+    if report_msgs and is_report_time and market_is_open:
         title = "🔎 [即時]"
         if is_lunch_time: title = "🍱 [午盤]"
         elif is_tail_time: title = "☕ [尾盤]"
         elif is_close_time: title = "🌅 [收盤]"
         
-        full_msg = f"{title} 行情 (精準)\n" + "-"*18 + "\n" + "\n\n".join(report_msgs)
+        full_msg = f"{title} 行情 (金融精算版)\n" + "-"*18 + "\n" + "\n\n".join(report_msgs)
         send_line_push(full_msg)
         print(f"✅ 已發送: {title}")
+    elif not market_is_open:
+        print("💤 偵測到休市，不發送通知。")
 
 if __name__ == "__main__":
     check_stock()
