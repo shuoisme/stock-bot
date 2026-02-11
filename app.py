@@ -169,7 +169,7 @@ with tab1:
                         # 調整版面：第一排張數成本
                         r1_c1, r1_c2 = st.columns(2)
                         new_qty = r1_c1.number_input("張數", value=qty, step=0.1)
-                        new_cost = r1_c2.number_input("成本", value=cost, step=0.1)
+                        new_cost = r1_c2.number_input("損益平衡點", value=cost, step=0.1)
                         
                         # 調整版面：第二排三個監控價 (買/賣/停損)
                         r2_c1, r2_c2, r2_c3 = st.columns(3)
@@ -214,7 +214,7 @@ with tab2:
         
         c4, c5 = st.columns(2)
         new_qty = c4.number_input("持有張數", min_value=0.1, value=1.0, step=0.1)
-        new_cost = c5.number_input("平均成本", min_value=0.0, step=0.1)
+        new_cost = c5.number_input("損益平衡點", min_value=0.0, step=0.1)
         
         # 🔥 修改為三欄，加入停損價
         c6, c7, c8 = st.columns(3)
@@ -249,5 +249,6 @@ with tab2:
                     st.rerun()
             else:
                 st.error("請輸入代號")
+
 
 
