@@ -64,7 +64,6 @@ def fetch_price_data(stock_id, today_str):
         res = requests.get(url, headers=headers)
         data = res.json()
         
-        # 休市檢查
         if "date" in data and data["date"] != today_str:
             return "HOLIDAY", None, clean_symbol
 
@@ -119,12 +118,14 @@ def check_stock():
         sid = item['stock_id']
         name = item.get('name', sid)
         
-        buy_target = float(item['buy_target']) if item.get('buy_target') else None
-        sell_target = float(item['sell_target']) if item.get('sell_target') else None
-        # 🔥 新增：讀取停損價 (如果沒設定就是 0)
-        stop_loss = float(item.get('stop_loss', 0))
+        buy_target = float(item.get('buy_target') or 0)
+        sell_target = float(item.get('sell_target') or 0)
         
-        cost_price = float(item.get('cost_price', 0))
+        # 🔥 V7.1 修正處：加強對 None 的防護
+        # 這裡加了 "or 0"，意思是：如果讀到 None，就用 0 代替
+        stop_loss = float(item.get('stop_loss') or 0)
+        
+        cost_price = float(item.get('cost_price') or 0)
         notify_record = item.get('last_notify') or {} 
 
         price_raw, prev_raw, real_symbol = fetch_price_data(sid, today_str)
@@ -154,7 +155,7 @@ def check_stock():
                 pl_str = f"損益: {sign}{pl_val_dec} ({sign}{pl_pct_dec}%)"
 
             # === 警報檢查區 ===
-            # 優先檢查停損，這最重要
+            # 優先檢查停損
             if stop_loss > 0 and price <= stop_loss:
                 if notify_record.get('stop_loss') != today_str:
                     msg = format_alert_msg(name, real_symbol, price, "🛑[停損觸發]", pct=change_pct, diff=diff_val, target=stop_loss, pl_str=pl_str)
@@ -190,9 +191,7 @@ def check_stock():
             item['last_notify'] = notify_record
 
             if is_report_time:
-                # 準備總表
                 alert_tag = ""
-                # 如果目前價格跌破停損，顯示 [損]
                 if stop_loss > 0 and price <= stop_loss: alert_tag = " 🛑[損]"
                 elif change_pct <= -9.0: alert_tag = " 📉[險]"
                 elif change_pct >= 9.0: alert_tag = " 🚀[衝]"
@@ -219,7 +218,7 @@ def check_stock():
         elif is_tail_time: title = "☕ [尾盤]"
         elif is_close_time: title = "🌅 [收盤]"
         
-        full_msg = f"{title} 行情 \n" + "-"*18 + "\n" + "\n\n".join(report_msgs)
+        full_msg = f"{title} 行情 (含停損監控)\n" + "-"*18 + "\n" + "\n\n".join(report_msgs)
         send_line_push(full_msg)
         print(f"✅ 已發送: {title}")
     elif not market_is_open:
@@ -227,4 +226,3 @@ def check_stock():
 
 if __name__ == "__main__":
     check_stock()
-
