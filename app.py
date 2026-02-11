@@ -173,8 +173,8 @@ with tab1:
                         
                         # 調整版面：第二排三個監控價 (買/賣/停損)
                         r2_c1, r2_c2, r2_c3 = st.columns(3)
-                        new_buy = r2_c1.number_input("監控買", value=buy_target, step=0.1)
-                        new_sell = r2_c2.number_input("監控賣", value=sell_target, step=0.1)
+                        new_buy = r2_c1.number_input("想買價", value=buy_target, step=0.1)
+                        new_sell = r2_c2.number_input("想賣價", value=sell_target, step=0.1)
                         new_stop = r2_c3.number_input("🛑 停損價", value=stop_loss, step=0.1)
                         
                         b1, b2 = st.columns([1, 1])
@@ -249,3 +249,4 @@ with tab2:
                     st.rerun()
             else:
                 st.error("請輸入代號")
+
