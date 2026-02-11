@@ -44,11 +44,11 @@ def format_alert_msg(name, symbol, price, title, pct=0, diff=0, target=None, pl_
 
     change_str = f"{diff_val:+.2f} ({pct_val:+.2f}%)" if price_val > 0 else ""
     msg = f"{title} {name} ({symbol})\n🕒 {now_str}\n💰 {price_val:.2f} {change_str}"
-    if target: msg += f"\n🎯 目標: {target}"
+    if target: msg += f"\n🛑 停損觸發: {target}" if "停損" in title else f"\n🎯 目標: {target}"
     if pl_str: msg += f"\n{pl_str}"
     return msg
 
-# --- 2. 抓價功能 (V6.5 休市自動過濾版) ---
+# --- 2. 抓價功能 ---
 def fetch_price_data(stock_id, today_str):
     api_token = os.environ.get("FUGLE_TOKEN")
     if not api_token:
@@ -64,7 +64,7 @@ def fetch_price_data(stock_id, today_str):
         res = requests.get(url, headers=headers)
         data = res.json()
         
-        # 🔥 關鍵判斷：如果資料日期 != 今天日期，代表休市，回傳 "HOLIDAY"
+        # 休市檢查
         if "date" in data and data["date"] != today_str:
             return "HOLIDAY", None, clean_symbol
 
@@ -106,17 +106,14 @@ def check_stock():
 
     need_save = False
     
-    # 時間邏輯 (嚴格限制)
     is_lunch_time = (current_hour == 11 and current_min <= 30)
     is_tail_time = (current_hour == 13 and current_min <= 30)
     is_close_time = (current_hour == 13 and current_min >= 40)
-    
     is_report_time = is_lunch_time or is_tail_time or is_close_time
-    if event_name == 'workflow_dispatch': 
-        is_report_time = True
+    if event_name == 'workflow_dispatch': is_report_time = True
 
     report_msgs = []
-    market_is_open = False # 標記今天是否開市
+    market_is_open = False
 
     for item in stock_list:
         sid = item['stock_id']
@@ -124,19 +121,19 @@ def check_stock():
         
         buy_target = float(item['buy_target']) if item.get('buy_target') else None
         sell_target = float(item['sell_target']) if item.get('sell_target') else None
+        # 🔥 新增：讀取停損價 (如果沒設定就是 0)
+        stop_loss = float(item.get('stop_loss', 0))
+        
         cost_price = float(item.get('cost_price', 0))
         notify_record = item.get('last_notify') or {} 
 
-        # 傳入 today_str 進行休市檢查
         price_raw, prev_raw, real_symbol = fetch_price_data(sid, today_str)
         
-        # 🏖️ 如果發現休市訊號
         if price_raw == "HOLIDAY":
-            print(f"🏖️ 休市中 (資料日期非今日): {sid}")
-            continue # 跳過這支股票
+            continue
             
         if price_raw and prev_raw:
-            market_is_open = True # 只要有一支股票抓到今天的資料，就代表開市
+            market_is_open = True
             p_dec = Decimal(str(price_raw))
             prev_dec = Decimal(str(prev_raw))
             diff_dec = p_dec - prev_dec
@@ -157,7 +154,15 @@ def check_stock():
                 pl_str = f"損益: {sign}{pl_val_dec} ({sign}{pl_pct_dec}%)"
 
             # === 警報檢查區 ===
-            if change_pct <= -9.0:
+            # 優先檢查停損，這最重要
+            if stop_loss > 0 and price <= stop_loss:
+                if notify_record.get('stop_loss') != today_str:
+                    msg = format_alert_msg(name, real_symbol, price, "🛑[停損觸發]", pct=change_pct, diff=diff_val, target=stop_loss, pl_str=pl_str)
+                    send_line_push(msg)
+                    notify_record['stop_loss'] = today_str
+                    need_save = True
+
+            elif change_pct <= -9.0:
                 if notify_record.get('limit_down') != today_str:
                     msg = format_alert_msg(name, real_symbol, price, "📉[即將跌停]", pct=change_pct, diff=diff_val, pl_str=pl_str)
                     send_line_push(msg)
@@ -187,10 +192,12 @@ def check_stock():
             if is_report_time:
                 # 準備總表
                 alert_tag = ""
-                if change_pct <= -9.0: alert_tag = " 📉[險]"
+                # 如果目前價格跌破停損，顯示 [損]
+                if stop_loss > 0 and price <= stop_loss: alert_tag = " 🛑[損]"
+                elif change_pct <= -9.0: alert_tag = " 📉[險]"
                 elif change_pct >= 9.0: alert_tag = " 🚀[衝]"
-                elif buy_target and price <= buy_target: alert_tag = " ✅[買點]"
-                elif sell_target and price >= sell_target: alert_tag = " 💰[賣點]"
+                elif buy_target and price <= buy_target: alert_tag = " ✅[買]"
+                elif sell_target and price >= sell_target: alert_tag = " 💰[賣]"
 
                 icon = "⬆️" if diff_val > 0 else "⬇️" if diff_val < 0 else "➖"
                 diff_str = f"{diff_val:+.2f} ({change_pct:+.2f}%)"
@@ -206,14 +213,13 @@ def check_stock():
             repo.update_file(contents.path, f"Update record {today_str}", new_content, contents.sha)
         except: pass
 
-    # 🔥 最終檢查：只有在「市場開市 (market_is_open)」的情況下才發總表
     if report_msgs and is_report_time and market_is_open:
         title = "🔎 [即時]"
         if is_lunch_time: title = "🍱 [午盤]"
         elif is_tail_time: title = "☕ [尾盤]"
         elif is_close_time: title = "🌅 [收盤]"
         
-        full_msg = f"{title} 行情 (金融精算版)\n" + "-"*18 + "\n" + "\n\n".join(report_msgs)
+        full_msg = f"{title} 行情 (含停損監控)\n" + "-"*18 + "\n" + "\n\n".join(report_msgs)
         send_line_push(full_msg)
         print(f"✅ 已發送: {title}")
     elif not market_is_open:
