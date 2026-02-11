@@ -82,7 +82,8 @@
     "sell_target": null,
     "last_notify": {
       "limit_down": "2026-02-11"
-    }
+    },
+    "stop_loss": 57.0
   },
   {
     "stock_id": "4123.TWO",
