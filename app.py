@@ -1,7 +1,7 @@
 import streamlit as st
 import json
 import time
-import requests # 👈 新增這個套件用來呼叫機器人
+import requests 
 import yfinance as yf
 from github import Github
 
@@ -11,8 +11,8 @@ st.set_page_config(page_title="家族股市帳本", page_icon="💰", layout="wi
 # --- 設定區 ---
 # ⚠️ 請確認這裡跟你的 GitHub 專案名稱一模一樣
 REPO_NAME = "shuoisme/stock-bot" 
-WORKFLOW_FILE = "main.yml" # ⚠️ 你的 workflow 檔案名稱 (通常是 main.yml)
-BRANCH_NAME = "main"       # ⚠️ 你的分支名稱 (通常是 main)
+WORKFLOW_FILE = "main.yml" 
+BRANCH_NAME = "main"       
 
 # --- 1. 連接 GitHub ---
 def get_repo():
@@ -35,7 +35,7 @@ def save_data(data, sha):
     content = repo.get_contents("stocks.json")
     repo.update_file("stocks.json", "Update from App", json.dumps(data, indent=2, ensure_ascii=False), content.sha)
 
-# --- 🚀 新增功能：呼叫機器人 ---
+# --- 🚀 呼叫機器人 ---
 def trigger_bot():
     token = st.secrets["GH_TOKEN"]
     url = f"https://api.github.com/repos/{REPO_NAME}/actions/workflows/{WORKFLOW_FILE}/dispatches"
@@ -45,7 +45,7 @@ def trigger_bot():
         "Accept": "application/vnd.github.v3+json"
     }
     data = {
-        "ref": BRANCH_NAME # 指定要執行的分支
+        "ref": BRANCH_NAME 
     }
     
     try:
@@ -120,6 +120,8 @@ with tab1:
             qty = float(item.get('qty', 1.0))
             buy_target = float(item.get('buy_target', 0) or 0)
             sell_target = float(item.get('sell_target', 0) or 0)
+            # 🔥 新增：讀取停損價
+            stop_loss = float(item.get('stop_loss', 0) or 0)
             
             price = get_current_price(sid)
             
@@ -163,11 +165,17 @@ with tab1:
                 with st.expander(f"⚙️ 設定 {name}"):
                     with st.form(key=f"edit_{i}_{sid}"):
                         new_name = st.text_input("股票名稱", value=name)
-                        ce1, ce2, ce3, ce4 = st.columns(4)
-                        new_qty = ce1.number_input("張數", value=qty, step=0.1)
-                        new_cost = ce2.number_input("成本", value=cost, step=0.1)
-                        new_buy = ce3.number_input("監控買", value=buy_target, step=0.1)
-                        new_sell = ce4.number_input("監控賣", value=sell_target, step=0.1)
+                        
+                        # 調整版面：第一排張數成本
+                        r1_c1, r1_c2 = st.columns(2)
+                        new_qty = r1_c1.number_input("張數", value=qty, step=0.1)
+                        new_cost = r1_c2.number_input("成本", value=cost, step=0.1)
+                        
+                        # 調整版面：第二排三個監控價 (買/賣/停損)
+                        r2_c1, r2_c2, r2_c3 = st.columns(3)
+                        new_buy = r2_c1.number_input("監控買", value=buy_target, step=0.1)
+                        new_sell = r2_c2.number_input("監控賣", value=sell_target, step=0.1)
+                        new_stop = r2_c3.number_input("🛑 停損價", value=stop_loss, step=0.1)
                         
                         b1, b2 = st.columns([1, 1])
                         if b1.form_submit_button("💾 儲存"):
@@ -176,6 +184,9 @@ with tab1:
                             item['cost_price'] = new_cost
                             item['buy_target'] = new_buy if new_buy > 0 else None
                             item['sell_target'] = new_sell if new_sell > 0 else None
+                            # 儲存停損價
+                            item['stop_loss'] = new_stop if new_stop > 0 else None
+                            
                             save_data(current_stocks, sha)
                             st.rerun()
 
@@ -205,9 +216,11 @@ with tab2:
         new_qty = c4.number_input("持有張數", min_value=0.1, value=1.0, step=0.1)
         new_cost = c5.number_input("平均成本", min_value=0.0, step=0.1)
         
-        c6, c7 = st.columns(2)
+        # 🔥 修改為三欄，加入停損價
+        c6, c7, c8 = st.columns(3)
         new_buy = c6.number_input("想買價", min_value=0.0, step=0.1)
         new_sell = c7.number_input("想賣價", min_value=0.0, step=0.1)
+        new_stop = c8.number_input("🛑 停損價", min_value=0.0, step=0.1)
 
         if st.form_submit_button("送出新增"):
             if new_code:
@@ -226,6 +239,7 @@ with tab2:
                         "cost_price": new_cost,
                         "buy_target": new_buy if new_buy > 0 else None,
                         "sell_target": new_sell if new_sell > 0 else None,
+                        "stop_loss": new_stop if new_stop > 0 else None, # 寫入停損價
                         "last_notify": {}
                     }
                     current_stocks.append(new_data)
