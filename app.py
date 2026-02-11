@@ -155,7 +155,7 @@ with tab1:
 
                 m1, m2, m3, m4, m5 = st.columns(5)
                 m1.metric("📦 張數", f"{qty} 張")
-                m2.metric("💵 成本", f"{cost}")
+                m2.metric("💵 損益平衡點", f"{cost}")
                 m3.metric("💰 本金", f"${int(invest_cost/1000)}k") 
                 m4.metric("🏦 現值", f"${int(market_value/1000)}k")
                 
@@ -249,4 +249,5 @@ with tab2:
                     st.rerun()
             else:
                 st.error("請輸入代號")
+
 
