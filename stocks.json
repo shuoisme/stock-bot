@@ -101,5 +101,14 @@
     "buy_target": null,
     "sell_target": null,
     "last_notify": {}
+  },
+  {
+    "stock_id": "2317.TW",
+    "name": "鴻海",
+    "qty": 1.0,
+    "cost_price": 0.0,
+    "buy_target": null,
+    "sell_target": null,
+    "last_notify": {}
   }
 ]
