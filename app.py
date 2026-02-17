@@ -94,7 +94,7 @@ def get_current_price(stock_id):
             continue
     return 0, stock_id
 
-# --- 3. 繪製專業 K 線圖 (V3.3 手機優化版) ---
+# --- 3. 繪製專業 K 線圖 (V3.4 縮放回歸版) ---
 def plot_k_line(symbol, name):
     df = get_stock_history(symbol, period="6mo")
     if df.empty:
@@ -122,25 +122,25 @@ def plot_k_line(symbol, name):
     colors = ['red' if row['Open'] - row['Close'] < 0 else 'green' for index, row in df.iterrows()]
     fig.add_trace(go.Bar(x=df.index, y=df['Volume'], marker_color=colors, name='量'), row=2, col=1)
 
-    # 4. 🔥 手機版關鍵優化設定
+    # 4. 版面設定 (🔥 關鍵修改：恢復互動)
     fig.update_layout(
         xaxis_rangeslider_visible=False,
         hovermode='x unified',
-        margin=dict(l=0, r=0, t=30, b=0), # 邊界縮到最小
-        height=450, # 高度拉高一點，手指好操作
+        margin=dict(l=0, r=0, t=30, b=0),
+        height=400,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        dragmode=False, # 🚫 禁止拖曳 (避免手機滑動時誤觸)
+        dragmode='pan', # 👈 恢復平移功能 (左右滑動)
     )
     
-    # 移除不必要的座標軸標籤，增加空間
     fig.update_xaxes(showspikes=True, spikemode='across', spikesnap='cursor', showline=True, linewidth=1, linecolor='black', mirror=True)
     fig.update_yaxes(showspikes=True, spikemode='across', spikesnap='cursor', showline=True, linewidth=1, linecolor='black', mirror=True)
 
-    # 🔥 config 設定：隱藏工具列，固定圖表
+    # 🔥 config 設定：保留基本縮放按鈕
     st.plotly_chart(fig, use_container_width=True, config={
-        'displayModeBar': False,  # 隱藏右上角工具列
-        'staticPlot': False,      # 保持互動 (看數值)，但限制移動
-        'scrollZoom': False       # 禁止滾輪縮放
+        'displayModeBar': True,   # 👈 顯示工具列
+        'scrollZoom': True,       # 👈 允許滾輪/雙指縮放
+        # 移除不必要的按鈕，保留 放大、縮小、重置、平移
+        'modeBarButtonsToRemove': ['select2d', 'lasso2d', 'autoScale2d', 'hoverClosestCartesian', 'hoverCompareCartesian'] 
     })
 
 
@@ -155,7 +155,7 @@ with st.sidebar:
             if success: st.success(msg)
             else: st.error(msg)
     st.divider()
-    st.info("💡 提示：手機版 K 線圖已優化，防止誤觸縮放。")
+    st.info("💡 提示：雙指可縮放圖表，單指可左右滑動查看歷史。")
 
 tab1, tab2, tab3 = st.tabs(["📊 資產看板", "➕ 新增股票", "🧮 攤平試算機"])
 
