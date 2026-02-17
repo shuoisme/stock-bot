@@ -75,9 +75,7 @@ def get_stock_history(ticker, period="1mo"):
 
 def get_current_price(stock_id):
     """抓取最新價格"""
-    # 嘗試各種後綴
     suffixes = [stock_id, f"{stock_id}.TW", f"{stock_id}.TWO"]
-    # 如果原本就有後綴，就不用亂試
     if stock_id.endswith('.TW') or stock_id.endswith('.TWO'):
         suffixes = [stock_id]
         
@@ -93,7 +91,6 @@ def get_current_price(stock_id):
 # --- 3. 介面設計 ---
 st.title("💰 家族股市戰情室")
 
-# 👇 側邊欄
 with st.sidebar:
     st.header("🎮 機器人遙控器")
     if st.button("📣 立即 LINE 回報", type="primary", use_container_width=True):
@@ -104,34 +101,30 @@ with st.sidebar:
     st.divider()
     st.info("💡 提示：走勢圖需要下載數據，若載入較慢請見諒。")
 
-# 🔥 新增 Tab 3: 攤平試算機
 tab1, tab2, tab3 = st.tabs(["📊 資產看板", "➕ 新增股票", "🧮 攤平試算機"])
 
 current_stocks, sha = load_data()
 
-# === 分頁 1: 資產看板 (含圓餅圖 & K線圖) ===
+# === 分頁 1: 資產看板 ===
 with tab1:
     if not current_stocks:
         st.info("目前沒有股票，請去隔壁新增 👉")
     else:
         total_market_value = 0 
         total_invest_cost = 0
-        pie_data_list = [] # 用來存圓餅圖資料
+        pie_data_list = [] 
         
-        # 先計算總資產與準備資料
-        # 為了效率，這裡先做一次迴圈處理數據
         display_data = []
         
         for i, item in enumerate(current_stocks):
             sid = item['stock_id']
             name = item.get('name', sid)
             cost = float(item.get('cost_price') or 0)
-            qty = float(item.get('qty') or 1.0)
+            qty = float(item.get('qty') or 0) # 預設允許 0
             buy_target = float(item.get('buy_target') or 0)
             sell_target = float(item.get('sell_target') or 0)
             stop_loss = float(item.get('stop_loss') or 0)
             
-            # 抓價
             price, valid_symbol = get_current_price(sid)
             
             invest_cost = cost * qty * 1000
@@ -141,15 +134,17 @@ with tab1:
             
             if price > 0:
                 market_value = price * qty * 1000
-                if cost > 0:
+                # 🔥 V3.1 修正：只有當本金大於 0 時才算損益，不然會除以零
+                if invest_cost > 0:
                     profit = market_value - invest_cost
                     profit_pct = (profit / invest_cost) * 100
                 
                 total_market_value += market_value
                 total_invest_cost += invest_cost
                 
-                # 加入圓餅圖數據
-                pie_data_list.append({"股票": name, "市值": market_value})
+                # 🔥 V3.1 修正：只有市值大於 0 才加入圓餅圖 (觀察股隱藏)
+                if market_value > 0:
+                    pie_data_list.append({"股票": name, "市值": market_value})
             
             display_data.append({
                 "i": i, "item": item, "price": price, "symbol": valid_symbol,
@@ -158,7 +153,6 @@ with tab1:
                 "buy": buy_target, "sell": sell_target, "stop": stop_loss
             })
 
-        # --- 📊 1. 資產分布圓餅圖 ---
         if total_market_value > 0:
             st.markdown("### 🍰 資產配置圖")
             df_pie = pd.DataFrame(pie_data_list)
@@ -168,7 +162,6 @@ with tab1:
             st.plotly_chart(fig_pie, use_container_width=True)
             st.divider()
 
-        # --- 2. 總資產數據 ---
         st.markdown("### 🏆 總資產總覽")
         f1, f2, f3 = st.columns(3)
         f1.metric("總投入本金", f"${int(total_invest_cost):,}")
@@ -177,7 +170,6 @@ with tab1:
         f3.metric("總損益", f"${int(total_market_value - total_invest_cost):,}", delta_color=final_color)
         st.divider()
 
-        # --- 3. 個股詳細卡片 ---
         st.markdown("### 📝 持股明細")
         for d in display_data:
             price = d['price']
@@ -194,7 +186,8 @@ with tab1:
                     st.caption(f"代號: {clean_id}")
                 with top_c2:
                     if price > 0:
-                        color = "red" if price > d['cost'] else "green"
+                        # 觀察股一律顯示灰色或綠色
+                        color = "red" if d['qty'] > 0 and price > d['cost'] else "green"
                         st.markdown(f"#### :test_tube: 現價: **{price:.2f}**")
                     else:
                         st.warning("⚠️ 無法讀取股價")
@@ -205,24 +198,22 @@ with tab1:
                 m3.metric("💰 本金", f"${int(d['invest_cost']/1000)}k") 
                 m4.metric("🏦 現值", f"${int(d['market_value']/1000)}k")
                 
-                color_mode = "normal" if d['profit'] > 0 else "inverse"
-                m5.metric("📉 損益", f"${int(d['profit']):,}", f"{d['profit_pct']:.1f}%", delta_color=color_mode)
+                # 🔥 V3.1 修正：如果是觀察股 (本金0)，顯示 "觀察中"
+                if d['invest_cost'] == 0:
+                    m5.metric("📉 損益", "👀 觀察中", "0%", delta_color="off")
+                else:
+                    color_mode = "normal" if d['profit'] > 0 else "inverse"
+                    m5.metric("📉 損益", f"${int(d['profit']):,}", f"{d['profit_pct']:.1f}%", delta_color=color_mode)
 
-                # --- ⚙️ 設定與走勢圖區域 ---
                 with st.expander(f"⚙️ 設定 & 走勢圖 - {name}"):
-                    
-                    # 🔥 [新增] K線圖 / 走勢圖
                     st.markdown("##### 📈 最近 1 個月走勢")
                     if d['symbol']:
                         try:
                             hist_data = get_stock_history(d['symbol'])
                             if not hist_data.empty:
-                                # 畫 K 線圖
                                 fig_k = go.Figure(data=[go.Candlestick(x=hist_data.index,
-                                                open=hist_data['Open'],
-                                                high=hist_data['High'],
-                                                low=hist_data['Low'],
-                                                close=hist_data['Close'])])
+                                                open=hist_data['Open'], high=hist_data['High'],
+                                                low=hist_data['Low'], close=hist_data['Close'])])
                                 fig_k.update_layout(xaxis_rangeslider_visible=False, margin=dict(l=0, r=0, t=0, b=0), height=300)
                                 st.plotly_chart(fig_k, use_container_width=True)
                             else:
@@ -235,7 +226,8 @@ with tab1:
                     with st.form(key=f"edit_{d['i']}_{sid}"):
                         new_name = st.text_input("股票名稱", value=name)
                         r1_c1, r1_c2 = st.columns(2)
-                        new_qty = r1_c1.number_input("張數", value=d['qty'], step=0.1)
+                        # 🔥 V3.1 修正：允許 min_value=0.0
+                        new_qty = r1_c1.number_input("張數 (0=觀察)", value=d['qty'], min_value=0.0, step=0.1)
                         new_cost = r1_c2.number_input("成本", value=d['cost'], step=0.1)
                         
                         r2_c1, r2_c2, r2_c3 = st.columns(3)
@@ -269,7 +261,8 @@ with tab2:
         market_type = col3.selectbox("市場類別", ["上市 (.TW)", "上櫃 (.TWO)"])
         
         c4, c5 = st.columns(2)
-        new_qty = c4.number_input("持有張數", min_value=0.1, value=1.0, step=0.1)
+        # 🔥 V3.1 修正：允許 min_value=0.0
+        new_qty = c4.number_input("持有張數 (0=觀察)", min_value=0.0, value=0.0, step=0.1)
         new_cost = c5.number_input("平均成本", min_value=0.0, step=0.1)
         
         c6, c7, c8 = st.columns(3)
@@ -302,23 +295,19 @@ with tab2:
             else:
                 st.error("請輸入代號")
 
-# === 分頁 3: 攤平試算機 (New!) ===
+# === 分頁 3: 攤平試算機 ===
 with tab3:
     st.subheader("🧮 攤平計算機 (Average Down Calculator)")
     st.write("如果你現在加碼買進，你的平均成本會變成多少？")
-    
     with st.container(border=True):
         c1, c2 = st.columns(2)
         cur_qty = c1.number_input("目前持有張數 (張)", value=1.0, step=0.1)
         cur_cost = c2.number_input("目前平均成本", value=100.0, step=0.5)
-        
         st.divider()
-        
         c3, c4 = st.columns(2)
         add_qty = c3.number_input("預計加碼張數 (張)", value=0.5, step=0.1)
         add_price = c4.number_input("預計加碼價格 (現價)", value=90.0, step=0.5)
         
-        # 計算邏輯
         total_old_cost = cur_qty * cur_cost
         total_new_cost = add_qty * add_price
         total_qty = cur_qty + add_qty
@@ -336,5 +325,3 @@ with tab3:
         r1.metric("加碼後總張數", f"{total_qty} 張")
         r2.metric("加碼後新成本", f"{new_avg_cost:.2f}", f"{diff_pct:.2f}% (成本降幅)", delta_color="inverse")
         r3.metric("需準備資金", f"${int(total_new_cost * 1000):,}")
-        
-        st.info(f"💡 小撇步：如果你的目標是把成本降到 {add_price} 元，你還需要買非常多張... 投資請量力而為！")
