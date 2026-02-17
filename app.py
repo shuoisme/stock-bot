@@ -5,6 +5,7 @@ import requests
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots # 👈 新增這個用來畫副圖(成交量)
 import yfinance as yf
 from github import Github
 
@@ -12,7 +13,7 @@ from github import Github
 st.set_page_config(page_title="家族股市戰情室", page_icon="💰", layout="wide")
 
 # --- 設定區 ---
-REPO_NAME = "shuoisme/stock-bot"  # ⚠️ 確認你的 GitHub 帳號/專案名稱
+REPO_NAME = "shuoisme/stock-bot"
 WORKFLOW_FILE = "main.yml"
 BRANCH_NAME = "main"
 
@@ -64,11 +65,17 @@ def trigger_bot():
         return False, f"❌ 連線錯誤：{str(e)}"
 
 # --- 2. 抓價與畫圖功能 ---
-def get_stock_history(ticker, period="1mo"):
-    """抓取歷史股價畫圖用"""
+def get_stock_history(ticker, period="3mo"):
+    """抓取歷史股價並計算均線"""
     try:
         stock = yf.Ticker(ticker)
         hist = stock.history(period=period)
+        
+        # 計算均線 (MA)
+        hist['MA5'] = hist['Close'].rolling(window=5).mean()
+        hist['MA20'] = hist['Close'].rolling(window=20).mean()
+        hist['MA60'] = hist['Close'].rolling(window=60).mean()
+        
         return hist
     except:
         return pd.DataFrame()
@@ -88,7 +95,54 @@ def get_current_price(stock_id):
             continue
     return 0, stock_id
 
-# --- 3. 介面設計 ---
+# --- 3. 繪製專業 K 線圖 (新功能) ---
+def plot_k_line(symbol, name):
+    df = get_stock_history(symbol, period="6mo") # 抓半年資料
+    if df.empty:
+        st.warning("⚠️ 無法讀取歷史數據")
+        return
+
+    # 建立子圖表 (上圖K線，下圖成交量)
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
+                        vertical_spacing=0.05, row_heights=[0.7, 0.3],
+                        subplot_titles=(f"{name} ({symbol}) 日K線圖", "成交量"))
+
+    # 1. 畫 K 線 (台股紅漲綠跌)
+    # increasing: 收盤 > 開盤 (漲/紅)
+    # decreasing: 收盤 < 開盤 (跌/綠)
+    fig.add_trace(go.Candlestick(x=df.index,
+                                 open=df['Open'], high=df['High'],
+                                 low=df['Low'], close=df['Close'],
+                                 increasing_line_color='red', decreasing_line_color='green',
+                                 name='K線'), row=1, col=1)
+
+    # 2. 畫均線 (MA)
+    fig.add_trace(go.Scatter(x=df.index, y=df['MA5'], line=dict(color='orange', width=1), name='MA5 (週線)'), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=df['MA20'], line=dict(color='blue', width=1), name='MA20 (月線)'), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=df['MA60'], line=dict(color='purple', width=1), name='MA60 (季線)'), row=1, col=1)
+
+    # 3. 畫成交量 (顏色跟著漲跌變)
+    colors = ['red' if row['Open'] - row['Close'] < 0 else 'green' for index, row in df.iterrows()]
+    fig.add_trace(go.Bar(x=df.index, y=df['Volume'], marker_color=colors, name='成交量'), row=2, col=1)
+
+    # 4. 設定版面 (中文與樣式)
+    fig.update_layout(
+        xaxis_rangeslider_visible=False, # 隱藏下方拉桿
+        hovermode='x unified',           # 滑鼠指過去顯示全部資訊
+        margin=dict(l=10, r=10, t=30, b=10),
+        height=400,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    
+    # 設定座標軸名稱
+    fig.update_yaxes(title_text="股價 (元)", row=1, col=1)
+    fig.update_yaxes(title_text="張數", row=2, col=1)
+    fig.update_xaxes(title_text="日期", row=2, col=1)
+
+    st.plotly_chart(fig, use_container_width=True)
+
+
+# --- 4. 介面設計 ---
 st.title("💰 家族股市戰情室")
 
 with st.sidebar:
@@ -99,7 +153,7 @@ with st.sidebar:
             if success: st.success(msg)
             else: st.error(msg)
     st.divider()
-    st.info("💡 提示：走勢圖需要下載數據，若載入較慢請見諒。")
+    st.info("💡 提示：K線圖已升級為台股紅白配色，並附帶均線與成交量。")
 
 tab1, tab2, tab3 = st.tabs(["📊 資產看板", "➕ 新增股票", "🧮 攤平試算機"])
 
@@ -113,14 +167,13 @@ with tab1:
         total_market_value = 0 
         total_invest_cost = 0
         pie_data_list = [] 
-        
         display_data = []
         
         for i, item in enumerate(current_stocks):
             sid = item['stock_id']
             name = item.get('name', sid)
             cost = float(item.get('cost_price') or 0)
-            qty = float(item.get('qty') or 0) # 預設允許 0
+            qty = float(item.get('qty') or 0)
             buy_target = float(item.get('buy_target') or 0)
             sell_target = float(item.get('sell_target') or 0)
             stop_loss = float(item.get('stop_loss') or 0)
@@ -134,15 +187,11 @@ with tab1:
             
             if price > 0:
                 market_value = price * qty * 1000
-                # 🔥 V3.1 修正：只有當本金大於 0 時才算損益，不然會除以零
                 if invest_cost > 0:
                     profit = market_value - invest_cost
                     profit_pct = (profit / invest_cost) * 100
-                
                 total_market_value += market_value
                 total_invest_cost += invest_cost
-                
-                # 🔥 V3.1 修正：只有市值大於 0 才加入圓餅圖 (觀察股隱藏)
                 if market_value > 0:
                     pie_data_list.append({"股票": name, "市值": market_value})
             
@@ -186,7 +235,6 @@ with tab1:
                     st.caption(f"代號: {clean_id}")
                 with top_c2:
                     if price > 0:
-                        # 觀察股一律顯示灰色或綠色
                         color = "red" if d['qty'] > 0 and price > d['cost'] else "green"
                         st.markdown(f"#### :test_tube: 現價: **{price:.2f}**")
                     else:
@@ -198,7 +246,6 @@ with tab1:
                 m3.metric("💰 本金", f"${int(d['invest_cost']/1000)}k") 
                 m4.metric("🏦 現值", f"${int(d['market_value']/1000)}k")
                 
-                # 🔥 V3.1 修正：如果是觀察股 (本金0)，顯示 "觀察中"
                 if d['invest_cost'] == 0:
                     m5.metric("📉 損益", "👀 觀察中", "0%", delta_color="off")
                 else:
@@ -206,27 +253,16 @@ with tab1:
                     m5.metric("📉 損益", f"${int(d['profit']):,}", f"{d['profit_pct']:.1f}%", delta_color=color_mode)
 
                 with st.expander(f"⚙️ 設定 & 走勢圖 - {name}"):
-                    st.markdown("##### 📈 最近 1 個月走勢")
+                    # 🔥 使用新的畫圖功能
+                    st.markdown("##### 📈 專業 K 線圖 (含均線/成交量)")
                     if d['symbol']:
-                        try:
-                            hist_data = get_stock_history(d['symbol'])
-                            if not hist_data.empty:
-                                fig_k = go.Figure(data=[go.Candlestick(x=hist_data.index,
-                                                open=hist_data['Open'], high=hist_data['High'],
-                                                low=hist_data['Low'], close=hist_data['Close'])])
-                                fig_k.update_layout(xaxis_rangeslider_visible=False, margin=dict(l=0, r=0, t=0, b=0), height=300)
-                                st.plotly_chart(fig_k, use_container_width=True)
-                            else:
-                                st.write("無歷史數據")
-                        except:
-                            st.write("圖表載入失敗")
+                        plot_k_line(d['symbol'], name) # 呼叫新函式
 
                     st.divider()
                     st.markdown("##### ⚙️ 參數設定")
                     with st.form(key=f"edit_{d['i']}_{sid}"):
                         new_name = st.text_input("股票名稱", value=name)
                         r1_c1, r1_c2 = st.columns(2)
-                        # 🔥 V3.1 修正：允許 min_value=0.0
                         new_qty = r1_c1.number_input("張數 (0=觀察)", value=d['qty'], min_value=0.0, step=0.1)
                         new_cost = r1_c2.number_input("成本", value=d['cost'], step=0.1)
                         
@@ -261,7 +297,6 @@ with tab2:
         market_type = col3.selectbox("市場類別", ["上市 (.TW)", "上櫃 (.TWO)"])
         
         c4, c5 = st.columns(2)
-        # 🔥 V3.1 修正：允許 min_value=0.0
         new_qty = c4.number_input("持有張數 (0=觀察)", min_value=0.0, value=0.0, step=0.1)
         new_cost = c5.number_input("平均成本", min_value=0.0, step=0.1)
         
