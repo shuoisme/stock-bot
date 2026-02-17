@@ -113,5 +113,15 @@
     "sell_target": null,
     "last_notify": {},
     "stop_loss": null
+  },
+  {
+    "stock_id": "009816.TW",
+    "name": "凱基台灣TOP50",
+    "qty": 0.2,
+    "cost_price": 10.1,
+    "buy_target": null,
+    "sell_target": null,
+    "stop_loss": null,
+    "last_notify": {}
   }
 ]
