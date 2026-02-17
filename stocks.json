@@ -123,5 +123,15 @@
     "sell_target": null,
     "stop_loss": null,
     "last_notify": {}
+  },
+  {
+    "stock_id": "00878.TW",
+    "name": "國泰永續高股息",
+    "qty": 1.3,
+    "cost_price": 21.36,
+    "buy_target": null,
+    "sell_target": null,
+    "stop_loss": null,
+    "last_notify": {}
   }
 ]
