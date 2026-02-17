@@ -108,8 +108,8 @@ def plot_k_line(symbol, name):
 
     # 1. 畫 K 線
     fig.add_trace(go.Candlestick(x=df.index,
-                                 open=df['Open'], high=df['High'],
-                                 low=df['Low'], close=df['Close'],
+                                 open=df['開'], high=df['高'],
+                                 low=df['低'], close=df['收'],
                                  increasing_line_color='red', decreasing_line_color='green',
                                  name='K線'), row=1, col=1)
 
@@ -361,3 +361,4 @@ with tab3:
         r1.metric("加碼後總張數", f"{total_qty} 張")
         r2.metric("加碼後新成本", f"{new_avg_cost:.2f}", f"{diff_pct:.2f}% (成本降幅)", delta_color="inverse")
         r3.metric("需準備資金", f"${int(total_new_cost * 1000):,}")
+
