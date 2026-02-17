@@ -5,7 +5,7 @@ import requests
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots # 👈 新增這個用來畫副圖(成交量)
+from plotly.subplots import make_subplots
 import yfinance as yf
 from github import Github
 
@@ -71,7 +71,6 @@ def get_stock_history(ticker, period="3mo"):
         stock = yf.Ticker(ticker)
         hist = stock.history(period=period)
         
-        # 計算均線 (MA)
         hist['MA5'] = hist['Close'].rolling(window=5).mean()
         hist['MA20'] = hist['Close'].rolling(window=20).mean()
         hist['MA60'] = hist['Close'].rolling(window=60).mean()
@@ -95,51 +94,54 @@ def get_current_price(stock_id):
             continue
     return 0, stock_id
 
-# --- 3. 繪製專業 K 線圖 (新功能) ---
+# --- 3. 繪製專業 K 線圖 (V3.3 手機優化版) ---
 def plot_k_line(symbol, name):
-    df = get_stock_history(symbol, period="6mo") # 抓半年資料
+    df = get_stock_history(symbol, period="6mo")
     if df.empty:
         st.warning("⚠️ 無法讀取歷史數據")
         return
 
-    # 建立子圖表 (上圖K線，下圖成交量)
+    # 建立子圖表
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
-                        vertical_spacing=0.05, row_heights=[0.7, 0.3],
-                        subplot_titles=(f"{name} ({symbol}) 日K線圖", "成交量"))
+                        vertical_spacing=0.03, row_heights=[0.7, 0.3],
+                        subplot_titles=(f"{name} 日K線", "成交量"))
 
-    # 1. 畫 K 線 (台股紅漲綠跌)
-    # increasing: 收盤 > 開盤 (漲/紅)
-    # decreasing: 收盤 < 開盤 (跌/綠)
+    # 1. 畫 K 線
     fig.add_trace(go.Candlestick(x=df.index,
                                  open=df['Open'], high=df['High'],
                                  low=df['Low'], close=df['Close'],
                                  increasing_line_color='red', decreasing_line_color='green',
                                  name='K線'), row=1, col=1)
 
-    # 2. 畫均線 (MA)
-    fig.add_trace(go.Scatter(x=df.index, y=df['MA5'], line=dict(color='orange', width=1), name='MA5 (週線)'), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df['MA20'], line=dict(color='blue', width=1), name='MA20 (月線)'), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df['MA60'], line=dict(color='purple', width=1), name='MA60 (季線)'), row=1, col=1)
+    # 2. 畫均線
+    fig.add_trace(go.Scatter(x=df.index, y=df['MA5'], line=dict(color='orange', width=1), name='週線'), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=df['MA20'], line=dict(color='blue', width=1), name='月線'), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=df['MA60'], line=dict(color='purple', width=1), name='季線'), row=1, col=1)
 
-    # 3. 畫成交量 (顏色跟著漲跌變)
+    # 3. 畫成交量
     colors = ['red' if row['Open'] - row['Close'] < 0 else 'green' for index, row in df.iterrows()]
-    fig.add_trace(go.Bar(x=df.index, y=df['Volume'], marker_color=colors, name='成交量'), row=2, col=1)
+    fig.add_trace(go.Bar(x=df.index, y=df['Volume'], marker_color=colors, name='量'), row=2, col=1)
 
-    # 4. 設定版面 (中文與樣式)
+    # 4. 🔥 手機版關鍵優化設定
     fig.update_layout(
-        xaxis_rangeslider_visible=False, # 隱藏下方拉桿
-        hovermode='x unified',           # 滑鼠指過去顯示全部資訊
-        margin=dict(l=10, r=10, t=30, b=10),
-        height=400,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        xaxis_rangeslider_visible=False,
+        hovermode='x unified',
+        margin=dict(l=0, r=0, t=30, b=0), # 邊界縮到最小
+        height=450, # 高度拉高一點，手指好操作
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        dragmode=False, # 🚫 禁止拖曳 (避免手機滑動時誤觸)
     )
     
-    # 設定座標軸名稱
-    fig.update_yaxes(title_text="股價 (元)", row=1, col=1)
-    fig.update_yaxes(title_text="張數", row=2, col=1)
-    fig.update_xaxes(title_text="日期", row=2, col=1)
+    # 移除不必要的座標軸標籤，增加空間
+    fig.update_xaxes(showspikes=True, spikemode='across', spikesnap='cursor', showline=True, linewidth=1, linecolor='black', mirror=True)
+    fig.update_yaxes(showspikes=True, spikemode='across', spikesnap='cursor', showline=True, linewidth=1, linecolor='black', mirror=True)
 
-    st.plotly_chart(fig, use_container_width=True)
+    # 🔥 config 設定：隱藏工具列，固定圖表
+    st.plotly_chart(fig, use_container_width=True, config={
+        'displayModeBar': False,  # 隱藏右上角工具列
+        'staticPlot': False,      # 保持互動 (看數值)，但限制移動
+        'scrollZoom': False       # 禁止滾輪縮放
+    })
 
 
 # --- 4. 介面設計 ---
@@ -153,7 +155,7 @@ with st.sidebar:
             if success: st.success(msg)
             else: st.error(msg)
     st.divider()
-    st.info("💡 提示：K線圖已升級為台股紅白配色，並附帶均線與成交量。")
+    st.info("💡 提示：手機版 K 線圖已優化，防止誤觸縮放。")
 
 tab1, tab2, tab3 = st.tabs(["📊 資產看板", "➕ 新增股票", "🧮 攤平試算機"])
 
@@ -253,10 +255,9 @@ with tab1:
                     m5.metric("📉 損益", f"${int(d['profit']):,}", f"{d['profit_pct']:.1f}%", delta_color=color_mode)
 
                 with st.expander(f"⚙️ 設定 & 走勢圖 - {name}"):
-                    # 🔥 使用新的畫圖功能
-                    st.markdown("##### 📈 專業 K 線圖 (含均線/成交量)")
+                    st.markdown("##### 📈 K 線圖")
                     if d['symbol']:
-                        plot_k_line(d['symbol'], name) # 呼叫新函式
+                        plot_k_line(d['symbol'], name)
 
                     st.divider()
                     st.markdown("##### ⚙️ 參數設定")
