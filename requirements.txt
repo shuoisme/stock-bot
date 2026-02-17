@@ -6,3 +6,5 @@ streamlit
 PyGithub
 lxml
 altair<5
+pandas
+plotly
