@@ -32,7 +32,6 @@ def send_line_push(msg):
     
     try:
         res = requests.post(url, headers=headers, json=payload)
-        # 🔥 檢查 LINE 有沒有退信
         if res.status_code != 200:
             print(f"❌ [LINE 拒絕發送] 狀態碼: {res.status_code}, 原因: {res.text}")
         else:
@@ -48,8 +47,8 @@ def format_alert_msg(name, symbol, price, title, pct=0, diff=0, target=None, pl_
     pct_val = float(pct)
 
     change_str = f"{diff_val:+.2f} ({pct_val:+.2f}%)" if price_val > 0 else ""
-    msg = f"{title} {name} ({symbol})\n🕒 {now_str}\n💰 {price_val:.2f} {change_str}"
-    if target: msg += f"\n🛑 停損觸發: {target}" if "停損" in title else f"\n🎯 目標: {target}"
+    msg = f"{title} {name} ({symbol})\n💰 {price_val:.2f} {change_str}"
+    if target: msg += f"\n🛑 觸發價: {target}"
     if pl_str: msg += f"\n{pl_str}"
     return msg
 
@@ -110,27 +109,24 @@ def check_stock():
 
     need_save = False
     
-    # 🔥 終極省水模式：嚴格限制只在該時段的「第一個 10 分鐘內」觸發
-    is_lunch_time = (current_hour == 11 and current_min < 10)       # 涵蓋 11:00 ~ 11:09
-    is_tail_time = (current_hour == 13 and current_min < 10)        # 涵蓋 13:00 ~ 13:09
-    is_close_time = (current_hour == 13 and 40 <= current_min < 50) # 涵蓋 13:40 ~ 13:49
-    is_report_time = is_lunch_time or is_tail_time or is_close_time # 這行照舊保留
+    # 🔥 終極省水模式：只在該時段的「第一個 10 分鐘內」觸發
+    is_lunch_time = (current_hour == 11 and current_min < 10)
+    is_tail_time = (current_hour == 13 and current_min < 10)
+    is_close_time = (current_hour == 13 and 40 <= current_min < 50)
+    is_report_time = is_lunch_time or is_tail_time or is_close_time
     if event_name == 'workflow_dispatch': is_report_time = True
 
+    # 🛒 準備兩個購物車：一個裝「總表」，一個裝「緊急快訊」
     report_msgs = []
+    urgent_alerts = [] 
     market_is_open = False
 
     for item in stock_list:
         sid = item['stock_id']
         name = item.get('name', sid)
-        
         buy_target = float(item.get('buy_target') or 0)
         sell_target = float(item.get('sell_target') or 0)
-        
-        # 🔥 V7.1 修正處：加強對 None 的防護
-        # 這裡加了 "or 0"，意思是：如果讀到 None，就用 0 代替
         stop_loss = float(item.get('stop_loss') or 0)
-        
         cost_price = float(item.get('cost_price') or 0)
         notify_record = item.get('last_notify') or {} 
 
@@ -160,42 +156,41 @@ def check_stock():
                 sign = "+" if pl_val_dec > 0 else ""
                 pl_str = f"損益: {sign}{pl_val_dec} ({sign}{pl_pct_dec}%)"
 
-            # === 警報檢查區 ===
-            # 優先檢查停損
+            # === 🚨 警報檢查區 (V8.1 改為放入購物車) ===
             if stop_loss > 0 and price <= stop_loss:
                 if notify_record.get('stop_loss') != today_str:
-                    msg = format_alert_msg(name, real_symbol, price, "🛑[停損觸發]", pct=change_pct, diff=diff_val, target=stop_loss, pl_str=pl_str)
-                    send_line_push(msg)
+                    msg = format_alert_msg(name, real_symbol, price, "🛑[停損]", pct=change_pct, diff=diff_val, target=stop_loss, pl_str=pl_str)
+                    urgent_alerts.append(msg) # 丟入合併購物車
                     notify_record['stop_loss'] = today_str
                     need_save = True
-
             elif change_pct <= -9.0:
                 if notify_record.get('limit_down') != today_str:
                     msg = format_alert_msg(name, real_symbol, price, "📉[即將跌停]", pct=change_pct, diff=diff_val, pl_str=pl_str)
-                    send_line_push(msg)
+                    urgent_alerts.append(msg) # 丟入合併購物車
                     notify_record['limit_down'] = today_str
                     need_save = True
             elif change_pct >= 9.0:
                 if notify_record.get('limit_up') != today_str:
                     msg = format_alert_msg(name, real_symbol, price, "🚀[即將漲停]", pct=change_pct, diff=diff_val, pl_str=pl_str)
-                    send_line_push(msg)
+                    urgent_alerts.append(msg) # 丟入合併購物車
                     notify_record['limit_up'] = today_str
                     need_save = True
             elif buy_target and price <= buy_target:
                 if notify_record.get('buy') != today_str:
-                    msg = format_alert_msg(name, real_symbol, price, "✅[買進訊號]", target=buy_target, pl_str=pl_str)
-                    send_line_push(msg)
+                    msg = format_alert_msg(name, real_symbol, price, "✅[買進]", target=buy_target, pl_str=pl_str)
+                    urgent_alerts.append(msg) # 丟入合併購物車
                     notify_record['buy'] = today_str
                     need_save = True
             elif sell_target and price >= sell_target:
                 if notify_record.get('sell') != today_str:
-                    msg = format_alert_msg(name, real_symbol, price, "💰[獲利訊號]", target=sell_target, pl_str=pl_str)
-                    send_line_push(msg)
+                    msg = format_alert_msg(name, real_symbol, price, "💰[獲利]", target=sell_target, pl_str=pl_str)
+                    urgent_alerts.append(msg) # 丟入合併購物車
                     notify_record['sell'] = today_str
                     need_save = True
 
             item['last_notify'] = notify_record
 
+            # === 總表收集區 ===
             if is_report_time:
                 alert_tag = ""
                 if stop_loss > 0 and price <= stop_loss: alert_tag = " 🛑[損]"
@@ -218,6 +213,14 @@ def check_stock():
             repo.update_file(contents.path, f"Update record {today_str}", new_content, contents.sha)
         except: pass
 
+    # 🔥 V8.1 結帳區：發送合併的緊急快訊 (只消耗 1 則額度)
+    if urgent_alerts:
+        now_str = datetime.now(TZ_TAIWAN).strftime('%H:%M')
+        combined_alert_msg = f"🚨 [觸發快訊] {now_str}\n" + "-"*18 + "\n" + "\n\n".join(urgent_alerts)
+        send_line_push(combined_alert_msg)
+        print("✅ 已發送: 合併快訊")
+
+    # 結帳區：發送例行總表 (消耗 1 則額度)
     if report_msgs and is_report_time and market_is_open:
         title = "🔎 [即時]"
         if is_lunch_time: title = "🍱 [午盤]"
@@ -232,4 +235,3 @@ def check_stock():
 
 if __name__ == "__main__":
     check_stock()
-
