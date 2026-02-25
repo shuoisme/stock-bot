@@ -110,10 +110,11 @@ def check_stock():
 
     need_save = False
     
-    is_lunch_time = (current_hour == 11 and current_min <= 30)
-    is_tail_time = (current_hour == 13 and current_min <= 30)
-    is_close_time = (current_hour == 13 and current_min >= 40)
-    is_report_time = is_lunch_time or is_tail_time or is_close_time
+    # 🔥 終極省水模式：嚴格限制只在該時段的「第一個 10 分鐘內」觸發
+    is_lunch_time = (current_hour == 11 and current_min < 10)       # 涵蓋 11:00 ~ 11:09
+    is_tail_time = (current_hour == 13 and current_min < 10)        # 涵蓋 13:00 ~ 13:09
+    is_close_time = (current_hour == 13 and 40 <= current_min < 50) # 涵蓋 13:40 ~ 13:49
+    is_report_time = is_lunch_time or is_tail_time or is_close_time # 這行照舊保留
     if event_name == 'workflow_dispatch': is_report_time = True
 
     report_msgs = []
@@ -231,3 +232,4 @@ def check_stock():
 
 if __name__ == "__main__":
     check_stock()
+
