@@ -11,7 +11,7 @@ JSON_FILE = 'stocks.json'
 REPO_NAME = "shuoisme/stock-bot"
 TZ_TAIWAN = timezone(timedelta(hours=8))
 
-# --- 1. LINE 推播功能 ---
+# --- 1. LINE 推播功能 (加強錯誤偵測版) ---
 def send_line_push(msg):
     token = os.environ.get("LINE_ACCESS_TOKEN")
     user_id = os.environ.get("LINE_USER_ID")
@@ -31,9 +31,14 @@ def send_line_push(msg):
     }
     
     try:
-        requests.post(url, headers=headers, json=payload)
+        res = requests.post(url, headers=headers, json=payload)
+        # 🔥 檢查 LINE 有沒有退信
+        if res.status_code != 200:
+            print(f"❌ [LINE 拒絕發送] 狀態碼: {res.status_code}, 原因: {res.text}")
+        else:
+            print("📩 LINE 伺服器已成功接收並傳送到手機！")
     except Exception as e:
-        print(f"❌ [錯誤] 推播失敗: {e}")
+        print(f"❌ [錯誤] 網路連線推播失敗: {e}")
 
 # 格式化訊息
 def format_alert_msg(name, symbol, price, title, pct=0, diff=0, target=None, pl_str=""):
@@ -226,4 +231,3 @@ def check_stock():
 
 if __name__ == "__main__":
     check_stock()
-
