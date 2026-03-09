@@ -83,7 +83,7 @@
     "sell_target": null,
     "last_notify": {
       "limit_down": "2026-03-04",
-      "limit_up": "2026-03-06"
+      "limit_up": "2026-03-09"
     },
     "stop_loss": null
   },
