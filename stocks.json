@@ -79,8 +79,8 @@
   {
     "stock_id": "2230.TWO",
     "name": "泰茂",
-    "qty": 3.6,
-    "cost_price": 143.62,
+    "qty": 0.6,
+    "cost_price": 0.0,
     "buy_target": null,
     "sell_target": null,
     "last_notify": {
