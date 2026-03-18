@@ -25,7 +25,9 @@
     "buy_target": null,
     "sell_target": 50.0,
     "cost_price": 44.06,
-    "last_notify": {},
+    "last_notify": {
+      "limit_up": "2026-03-18"
+    },
     "name": "合晶",
     "qty": 3.0
   },
