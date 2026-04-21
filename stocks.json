@@ -17,7 +17,7 @@
     "sell_target": 50.0,
     "cost_price": 34.1,
     "last_notify": {
-      "limit_up": "2026-04-16"
+      "limit_up": "2026-04-21"
     },
     "name": "金寶",
     "qty": 5.0
@@ -28,7 +28,7 @@
     "sell_target": 50.0,
     "cost_price": 44.06,
     "last_notify": {
-      "limit_up": "2026-04-20"
+      "limit_up": "2026-04-21"
     },
     "name": "合晶",
     "qty": 3.0
