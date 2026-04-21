@@ -126,8 +126,8 @@
   {
     "stock_id": "009816.TW",
     "name": "凱基台灣TOP50",
-    "qty": 0.6,
-    "cost_price": 10.62,
+    "qty": 1.0,
+    "cost_price": 11.31,
     "buy_target": null,
     "sell_target": null,
     "stop_loss": null,
