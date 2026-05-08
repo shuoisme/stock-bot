@@ -34,7 +34,8 @@
       "sell": "2026-05-08"
     },
     "name": "合晶",
-    "qty": 3.0
+    "qty": 3.0,
+    "stop_loss": null
   },
   {
     "stock_id": "2201.TW",
