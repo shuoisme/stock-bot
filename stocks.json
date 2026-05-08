@@ -26,7 +26,7 @@
   {
     "stock_id": "6182",
     "buy_target": null,
-    "sell_target": 50.0,
+    "sell_target": null,
     "cost_price": 44.06,
     "last_notify": {
       "limit_up": "2026-05-07",
