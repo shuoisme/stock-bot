@@ -149,15 +149,5 @@
     "sell_target": null,
     "stop_loss": null,
     "last_notify": {}
-  },
-  {
-    "stock_id": "3071.TWO",
-    "name": "3071.TWO",
-    "qty": 1.0,
-    "cost_price": 50.0,
-    "buy_target": null,
-    "sell_target": null,
-    "stop_loss": null,
-    "last_notify": {}
   }
 ]
