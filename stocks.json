@@ -53,7 +53,7 @@
     "buy_target": null,
     "sell_target": null,
     "last_notify": {
-      "limit_up": "2026-05-25"
+      "limit_up": "2026-05-29"
     },
     "name": "宏碁"
   },
@@ -127,7 +127,9 @@
     "cost_price": 0.0,
     "buy_target": null,
     "sell_target": null,
-    "last_notify": {},
+    "last_notify": {
+      "limit_up": "2026-05-29"
+    },
     "stop_loss": null
   },
   {
