@@ -151,5 +151,15 @@
     "sell_target": null,
     "stop_loss": null,
     "last_notify": {}
+  },
+  {
+    "stock_id": "9105.TW",
+    "name": "泰金寶-DR",
+    "qty": 20.0,
+    "cost_price": 9.0,
+    "buy_target": null,
+    "sell_target": null,
+    "stop_loss": null,
+    "last_notify": {}
   }
 ]
