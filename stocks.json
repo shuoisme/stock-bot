@@ -65,7 +65,7 @@
     "buy_target": null,
     "sell_target": null,
     "last_notify": {
-      "limit_up": "2026-06-02",
+      "limit_up": "2026-06-03",
       "limit_down": "2026-05-26"
     }
   },
@@ -76,7 +76,9 @@
     "cost_price": 15.94,
     "buy_target": null,
     "sell_target": null,
-    "last_notify": {}
+    "last_notify": {
+      "limit_up": "2026-06-03"
+    }
   },
   {
     "stock_id": "2890.TW",
@@ -160,7 +162,9 @@
     "buy_target": null,
     "sell_target": null,
     "stop_loss": null,
-    "last_notify": {}
+    "last_notify": {
+      "limit_up": "2026-06-03"
+    }
   },
   {
     "stock_id": "6116.TW",
@@ -171,7 +175,7 @@
     "sell_target": null,
     "stop_loss": null,
     "last_notify": {
-      "limit_up": "2026-06-02"
+      "limit_up": "2026-06-03"
     }
   }
 ]
