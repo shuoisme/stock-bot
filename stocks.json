@@ -53,7 +53,8 @@
     "buy_target": null,
     "sell_target": null,
     "last_notify": {
-      "limit_up": "2026-06-02"
+      "limit_up": "2026-06-02",
+      "limit_down": "2026-06-04"
     },
     "name": "宏碁"
   },
@@ -163,7 +164,7 @@
     "sell_target": null,
     "stop_loss": null,
     "last_notify": {
-      "limit_up": "2026-06-03"
+      "limit_up": "2026-06-04"
     }
   },
   {
@@ -175,7 +176,8 @@
     "sell_target": null,
     "stop_loss": null,
     "last_notify": {
-      "limit_up": "2026-06-03"
+      "limit_up": "2026-06-03",
+      "limit_down": "2026-06-04"
     }
   }
 ]
