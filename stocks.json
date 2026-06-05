@@ -164,7 +164,8 @@
     "sell_target": null,
     "stop_loss": null,
     "last_notify": {
-      "limit_up": "2026-06-04"
+      "limit_up": "2026-06-04",
+      "limit_down": "2026-06-05"
     }
   },
   {
@@ -177,7 +178,7 @@
     "stop_loss": null,
     "last_notify": {
       "limit_up": "2026-06-03",
-      "limit_down": "2026-06-04"
+      "limit_down": "2026-06-05"
     }
   }
 ]
