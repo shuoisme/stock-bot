@@ -29,7 +29,7 @@
     "sell_target": null,
     "cost_price": 44.06,
     "last_notify": {
-      "limit_up": "2026-06-09",
+      "limit_up": "2026-06-12",
       "limit_down": "2026-06-10",
       "sell": "2026-05-08"
     },
@@ -177,7 +177,7 @@
     "sell_target": null,
     "stop_loss": null,
     "last_notify": {
-      "limit_up": "2026-06-03",
+      "limit_up": "2026-06-12",
       "limit_down": "2026-06-08"
     }
   }
