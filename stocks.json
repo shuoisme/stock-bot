@@ -100,18 +100,6 @@
     "last_notify": {}
   },
   {
-    "stock_id": "2317.TW",
-    "name": "鴻海",
-    "qty": 0.0,
-    "cost_price": 0.0,
-    "buy_target": null,
-    "sell_target": null,
-    "last_notify": {
-      "limit_up": "2026-05-29"
-    },
-    "stop_loss": null
-  },
-  {
     "stock_id": "009816.TW",
     "name": "凱基台灣TOP50",
     "qty": 1.0,
