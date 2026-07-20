@@ -12,20 +12,6 @@
     "qty": 5.0
   },
   {
-    "stock_id": "6182",
-    "buy_target": null,
-    "sell_target": null,
-    "cost_price": 44.06,
-    "last_notify": {
-      "limit_up": "2026-07-13",
-      "limit_down": "2026-07-17",
-      "sell": "2026-05-08"
-    },
-    "name": "合晶",
-    "qty": 3.0,
-    "stop_loss": null
-  },
-  {
     "stock_id": "2201.TW",
     "qty": 1.0,
     "cost_price": 79.6,
