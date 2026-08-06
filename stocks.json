@@ -146,5 +146,15 @@
       "limit_up": "2026-08-05",
       "limit_down": "2026-06-08"
     }
+  },
+  {
+    "stock_id": "1718.TW",
+    "name": "中纖",
+    "qty": 10.0,
+    "cost_price": 10.01,
+    "buy_target": null,
+    "sell_target": null,
+    "stop_loss": null,
+    "last_notify": {}
   }
 ]
