@@ -40,7 +40,7 @@
     "buy_target": null,
     "sell_target": null,
     "last_notify": {
-      "limit_up": "2026-07-31",
+      "limit_up": "2026-08-10",
       "limit_down": "2026-06-08"
     }
   },
@@ -143,7 +143,7 @@
     "sell_target": null,
     "stop_loss": null,
     "last_notify": {
-      "limit_up": "2026-08-05",
+      "limit_up": "2026-08-10",
       "limit_down": "2026-06-08"
     }
   },
