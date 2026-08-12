@@ -156,6 +156,8 @@
     "buy_target": null,
     "sell_target": null,
     "stop_loss": null,
-    "last_notify": {}
+    "last_notify": {
+      "limit_up": "2026-08-12"
+    }
   }
 ]
