@@ -167,7 +167,7 @@
     "cost_price": 29.5,
     "buy_target": null,
     "sell_target": null,
-    "stop_loss": null,
+    "stop_loss": 27.3,
     "last_notify": {}
   }
 ]
