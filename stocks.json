@@ -159,5 +159,15 @@
     "last_notify": {
       "limit_up": "2026-08-12"
     }
+  },
+  {
+    "stock_id": "3031.TW",
+    "name": "佰鴻",
+    "qty": 15.0,
+    "cost_price": 29.5,
+    "buy_target": null,
+    "sell_target": null,
+    "stop_loss": null,
+    "last_notify": {}
   }
 ]
