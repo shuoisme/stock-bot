@@ -33,18 +33,6 @@
     "name": "宏碁"
   },
   {
-    "stock_id": "2409.TW",
-    "name": "友達",
-    "qty": 10.0,
-    "cost_price": 16.8,
-    "buy_target": null,
-    "sell_target": null,
-    "last_notify": {
-      "limit_up": "2026-09-30",
-      "limit_down": "2026-06-08"
-    }
-  },
-  {
     "stock_id": "2883.TW",
     "name": "凱基金",
     "qty": 3.03,
