@@ -5,7 +5,7 @@
     "sell_target": 50.0,
     "cost_price": 34.1,
     "last_notify": {
-      "limit_up": "2026-07-31",
+      "limit_up": "2026-11-09",
       "limit_down": "2026-06-08"
     },
     "name": "金寶",
@@ -63,7 +63,7 @@
     "sell_target": null,
     "last_notify": {
       "limit_down": "2026-03-04",
-      "limit_up": "2026-05-07"
+      "limit_up": "2026-11-09"
     },
     "stop_loss": null
   },
