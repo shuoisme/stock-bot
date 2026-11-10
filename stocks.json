@@ -86,7 +86,9 @@
     "cost_price": 60.96,
     "buy_target": null,
     "sell_target": null,
-    "last_notify": {}
+    "last_notify": {
+      "limit_up": "2026-11-10"
+    }
   },
   {
     "stock_id": "009816.TW",
