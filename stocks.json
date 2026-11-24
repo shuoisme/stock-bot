@@ -5,7 +5,7 @@
     "sell_target": 50.0,
     "cost_price": 34.1,
     "last_notify": {
-      "limit_up": "2026-11-09",
+      "limit_up": "2026-11-24",
       "limit_down": "2026-06-08"
     },
     "name": "金寶",
@@ -51,7 +51,7 @@
     "buy_target": null,
     "sell_target": null,
     "last_notify": {
-      "limit_up": "2026-06-18"
+      "limit_up": "2026-11-24"
     }
   },
   {
@@ -99,7 +99,7 @@
     "sell_target": null,
     "stop_loss": null,
     "last_notify": {
-      "limit_up": "2026-07-31"
+      "limit_up": "2026-11-24"
     }
   },
   {
@@ -110,7 +110,9 @@
     "buy_target": null,
     "sell_target": null,
     "stop_loss": null,
-    "last_notify": {}
+    "last_notify": {
+      "limit_up": "2026-11-24"
+    }
   },
   {
     "stock_id": "9105.TW",
@@ -121,7 +123,7 @@
     "sell_target": null,
     "stop_loss": null,
     "last_notify": {
-      "limit_up": "2026-07-31",
+      "limit_up": "2026-11-24",
       "limit_down": "2026-06-08"
     }
   },
