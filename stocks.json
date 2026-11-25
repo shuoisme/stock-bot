@@ -51,7 +51,8 @@
     "buy_target": null,
     "sell_target": null,
     "last_notify": {
-      "limit_up": "2026-11-24"
+      "limit_up": "2026-11-24",
+      "limit_down": "2026-11-25"
     }
   },
   {
